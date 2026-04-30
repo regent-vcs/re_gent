@@ -26,18 +26,18 @@ func Open(s *store.Store) (*DB, error) {
 
 	// Configure SQLite for concurrency
 	if _, err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("set journal mode: %w", err)
 	}
 
 	if _, err := db.Exec("PRAGMA synchronous = NORMAL"); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("set synchronous: %w", err)
 	}
 
 	// Create schema
 	if err := createSchema(db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 

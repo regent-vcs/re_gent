@@ -36,7 +36,7 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 	if err != nil {
 		return logError(s, fmt.Errorf("open index: %w", err))
 	}
-	defer idx.Close()
+	defer func() { _ = idx.Close() }()
 
 	// 4. Snapshot workspace
 	ig := ignore.Default(p.CWD)
@@ -108,10 +108,10 @@ func logError(s *store.Store, err error) error {
 		// Can't even log - give up silently
 		return nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	timestamp := time.Now().Format(time.RFC3339)
-	fmt.Fprintf(f, "[%s] %v\n", timestamp, err)
+	_, _ = fmt.Fprintf(f, "[%s] %v\n", timestamp, err)
 
 	// Return nil so hook exits cleanly and doesn't break the agent
 	return nil

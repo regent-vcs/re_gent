@@ -67,8 +67,8 @@ func atomicWriteFile(path string, content []byte) error {
 	// Ensure cleanup on error
 	defer func() {
 		if tmpFile != nil {
-			tmpFile.Close()
-			os.Remove(tmpPath)
+			_ = tmpFile.Close()
+			_ = os.Remove(tmpPath)
 		}
 	}()
 
