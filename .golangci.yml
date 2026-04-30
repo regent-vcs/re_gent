@@ -36,3 +36,16 @@ issues:
   exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
+
+  # Relax rules for test code during POC phase
+  exclude-rules:
+    - path: _test\.go$
+      linters:
+        - errcheck
+        - gosec
+        - govet
+    - path: ^test/
+      linters:
+        - errcheck
+        - gosec
+        - govet

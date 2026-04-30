@@ -52,10 +52,10 @@ func TestPhase1Acceptance(t *testing.T) {
 	// 2. Create test files
 	t.Log("Step 2: Create test files")
 	testFiles := map[string]string{
-		"main.go":       "package main\n\nfunc main() {}\n",
-		"README.md":     "# Test Project\n",
-		"lib/util.go":   "package lib\n",
-		".gitignore":    "*.log\n",
+		"main.go":                   "package main\n\nfunc main() {}\n",
+		"README.md":                 "# Test Project\n",
+		"lib/util.go":               "package lib\n",
+		".gitignore":                "*.log\n",
 		"node_modules/package.json": "{}", // Should be ignored
 	}
 

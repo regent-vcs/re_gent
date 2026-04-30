@@ -58,9 +58,9 @@ func TestBlobIntegrity(t *testing.T) {
 	}
 
 	testCases := [][]byte{
-		[]byte(""),                    // empty
-		[]byte("a"),                   // single byte
-		[]byte("hello, world!"),       // small
+		[]byte(""),                           // empty
+		[]byte("a"),                          // single byte
+		[]byte("hello, world!"),              // small
 		bytes.Repeat([]byte("x"), 1024*1024), // 1 MB
 	}
 

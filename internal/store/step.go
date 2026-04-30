@@ -15,8 +15,8 @@ type Cause struct {
 
 // Effect describes side effects of the step
 type Effect struct {
-	Kind       string `json:"kind"`        // "http_call", "db_write", "process_exec", ...
-	Descriptor string `json:"descriptor"`  // human-readable summary
+	Kind       string `json:"kind"`       // "http_call", "db_write", "process_exec", ...
+	Descriptor string `json:"descriptor"` // human-readable summary
 }
 
 // Step is the equivalent of a git commit

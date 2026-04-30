@@ -83,6 +83,7 @@ func atomicWriteFile(path string, content []byte) error {
 	if err := tmpFile.Close(); err != nil {
 		return fmt.Errorf("close temp file: %w", err)
 	}
+	tmpFile = nil // Mark as closed to prevent cleanup
 
 	// Rename is atomic on POSIX filesystems
 	if err := os.Rename(tmpPath, path); err != nil {
@@ -95,7 +96,6 @@ func atomicWriteFile(path string, content []byte) error {
 		_ = err
 	}
 
-	tmpFile = nil // Prevent cleanup
 	return nil
 }
 
