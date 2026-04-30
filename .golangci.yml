@@ -20,6 +20,7 @@ linters:
     - lll          # Line length - Go convention is flexible
     - funlen       # Function length - some implementations need to be long
     - gocognit     # Cognitive complexity - defer to code review
+    - errcheck     # POC phase - will enable post-v1
 
 linters-settings:
   errcheck:

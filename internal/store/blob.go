@@ -120,8 +120,8 @@ func (s *Store) WalkObjects(fn func(Hash) error) error {
 			return nil
 		}
 		// Extract hash from path: objects/ab/abcdef... -> abcdef...
-		rel, _ := filepath.Rel(objectsDir, path)
-		if len(rel) < 3 {
+		rel, err := filepath.Rel(objectsDir, path)
+		if err != nil || len(rel) < 3 {
 			return nil
 		}
 		// Reconstruct full hash: ab/abcdef... -> ababcdef...
