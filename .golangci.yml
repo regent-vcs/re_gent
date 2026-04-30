@@ -1,0 +1,38 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - gofmt
+    - goimports
+    - govet
+    - errcheck
+    - staticcheck
+    - gosec
+    - gosimple
+    - ineffassign
+    - unused
+    - typecheck
+
+  disable:
+    - gocyclo      # Complexity checks - POC code prioritizes clarity
+    - lll          # Line length - Go convention is flexible
+    - funlen       # Function length - some implementations need to be long
+    - gocognit     # Cognitive complexity - defer to code review
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+  govet:
+    enable-all: true
+
+  staticcheck:
+    checks: ["all"]
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -1,0 +1,81 @@
+name: Phase Implementation
+description: Track implementation of a POC phase from POC.md
+labels: ["roadmap"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to track implementation of phases from POC.md.
+
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Phase Number
+      description: Which phase are you implementing?
+      options:
+        - "Phase 2: Hook Integration"
+        - "Phase 3: Blame Algorithm"
+        - "Phase 4: Transcript Staging"
+        - "Phase 5: Rewind"
+        - "Phase 6: Concurrency Hardening"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reference
+    attributes:
+      label: Reference Section in POC.md
+      description: Link to or quote the relevant section from POC.md
+      placeholder: "See POC.md §7.2 - Hook Integration..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: Checklist from POC.md for this phase
+      placeholder: |
+        - [ ] Hook receives payload from Claude Code
+        - [ ] Workspace snapshot captures changes
+        - [ ] Step object created and stored
+        - [ ] Session ref updated via CAS
+        - [ ] Integration tests pass
+      value: |
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: What other phases or issues must be completed first?
+      placeholder: "Depends on: #123 (Phase 1 completion)"
+
+  - type: dropdown
+    id: breaking
+    attributes:
+      label: Breaking Changes Expected?
+      description: Will this phase introduce breaking changes to the object format or CLI?
+      options:
+        - "No breaking changes"
+        - "Yes - schema/format changes"
+        - "Yes - CLI changes"
+        - "Yes - both schema and CLI"
+    validations:
+      required: true
+
+  - type: textarea
+    id: migration
+    attributes:
+      label: Migration Path
+      description: If breaking changes, how will users migrate?
+      placeholder: "Users will need to run `rgt migrate` or reinitialize..."
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Notes
+      description: Any implementation notes, concerns, or open questions

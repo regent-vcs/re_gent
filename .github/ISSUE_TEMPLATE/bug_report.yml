@@ -1,0 +1,92 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+labels: ["bug"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please provide as much detail as possible.
+
+  - type: input
+    id: regent-version
+    attributes:
+      label: Regent Version
+      description: Output of `rgt --version`
+      placeholder: "e.g., rgt version 0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: go-version
+    attributes:
+      label: Go Version
+      description: Output of `go version`
+      placeholder: "e.g., go version go1.26.2 darwin/arm64"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      description: OS and architecture
+      placeholder: "e.g., macOS 14.3 (arm64), Ubuntu 22.04 (amd64), Windows 11 (amd64)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+      placeholder: "I expected..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+      placeholder: "Instead..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Provide a minimal set of steps to reproduce the issue
+      placeholder: |
+        1. Run `rgt init`
+        2. Run `rgt status`
+        3. See error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Relevant Command Output
+      description: Paste any relevant command output or error messages
+      render: shell
+      placeholder: |
+        $ rgt status
+        Error: ...
+
+  - type: checkboxes
+    id: corruption
+    attributes:
+      label: Repository State
+      description: Check if applicable
+      options:
+        - label: My `.regent/` directory may be corrupted
+        - label: This issue appeared after upgrading Regent
+        - label: I can reproduce this in a fresh repository
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other context, logs, or screenshots that might help
