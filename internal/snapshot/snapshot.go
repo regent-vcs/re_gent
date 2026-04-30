@@ -21,7 +21,10 @@ func Snapshot(s *store.Store, root string, ig *ignore.Matcher) (store.Hash, erro
 			return err
 		}
 
-		rel, _ := filepath.Rel(root, p)
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
 		if rel == "." {
 			return nil
 		}

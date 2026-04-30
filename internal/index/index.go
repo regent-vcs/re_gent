@@ -94,7 +94,7 @@ func (idx *DB) IndexStep(stepHash store.Hash, step *store.Step, tree *store.Tree
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Insert step
 	_, err = tx.Exec(`
@@ -180,7 +180,7 @@ func (idx *DB) ListSteps(sessionID string, limit int) ([]StepInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var steps []StepInfo
 	for rows.Next() {
@@ -214,7 +214,7 @@ func (idx *DB) ListAllSessions() ([]SessionInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var sessions []SessionInfo
 	for rows.Next() {

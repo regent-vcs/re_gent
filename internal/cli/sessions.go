@@ -32,7 +32,7 @@ func SessionsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer idx.Close()
+			defer func() { _ = idx.Close() }()
 
 			sessions, err := idx.ListAllSessions()
 			if err != nil {

@@ -35,7 +35,7 @@ func LogCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer idx.Close()
+			defer func() { _ = idx.Close() }()
 
 			// If no session specified, use the most recent one
 			if sessionID == "" {

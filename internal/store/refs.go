@@ -49,8 +49,8 @@ func (s *Store) UpdateRef(name string, expectedOld Hash, newHash Hash) error {
 
 	// Cleanup lock file when done
 	defer func() {
-		syscall.Close(fd)
-		os.Remove(lockPath)
+		_ = syscall.Close(fd)
+		_ = os.Remove(lockPath)
 	}()
 
 	// Read current value
@@ -90,7 +90,7 @@ func (s *Store) UpdateRefWithRetry(name string, expectedOld, newHash Hash, maxAt
 		}
 
 		// Re-read current value for next attempt
-		expectedOld, _ = s.ReadRef(name)
+		expectedOld, _ = s.ReadRef(name) // Ignore error on retry
 	}
 	return ErrRefConflict
 }
@@ -115,7 +115,10 @@ func (s *Store) ListRefs(dir string) (map[string]Hash, error) {
 			return nil
 		}
 
-		rel, _ := filepath.Rel(refsDir, path)
+		rel, err := filepath.Rel(refsDir, path)
+		if err != nil {
+			return err
+		}
 		hash, err := s.ReadRef(filepath.Join(dir, rel))
 		if err != nil {
 			return err

@@ -38,7 +38,7 @@ func InitCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("initialize index: %w", err)
 			}
-			defer idx.Close()
+			defer func() { _ = idx.Close() }()
 
 			fmt.Printf("Initialized regent repository in %s\n", filepath.Join(cwd, ".regent"))
 			fmt.Println()
@@ -110,7 +110,7 @@ func installHook(projectRoot string) error {
 		if err := json.Unmarshal(data, &settings); err != nil {
 			// Invalid JSON - backup and start fresh
 			backupPath := settingsPath + ".backup"
-			os.Rename(settingsPath, backupPath)
+			_ = os.Rename(settingsPath, backupPath)
 			settings = make(map[string]interface{})
 		}
 	} else {

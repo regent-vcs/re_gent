@@ -31,7 +31,7 @@ func StatusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer idx.Close()
+			defer func() { _ = idx.Close() }()
 
 			// List all sessions
 			sessions, err := idx.ListAllSessions()
