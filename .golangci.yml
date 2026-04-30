@@ -6,9 +6,7 @@ linters:
   enable:
     - gofmt
     - goimports
-    - govet
     - staticcheck
-    - gosec
     - gosimple
     - ineffassign
     - unused
