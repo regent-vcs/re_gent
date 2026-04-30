@@ -19,10 +19,13 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26.2'
+          go-version: '1.22'
 
       - name: Download dependencies
         run: go mod download
+
+      - name: Build test binary
+        run: go build -o rgt ./cmd/rgt
 
       - name: Run tests
         run: go test ./...
@@ -40,7 +43,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26.2'
+          go-version: '1.22'
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v4
@@ -57,13 +60,13 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26.2'
+          go-version: '1.22'
 
       - name: Build binary
         run: go build -o rgt ./cmd/rgt
 
       - name: Test binary
-        run: ./rgt --version
+        run: ./rgt version
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
