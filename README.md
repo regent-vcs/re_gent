@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/regent-vcs/regent/workflows/CI/badge.svg)](https://github.com/regent-vcs/regent/actions)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/regent-vcs/regent)](go.mod)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 **Version control for AI agent activity.**
 
@@ -197,7 +197,7 @@ Built with:
 
 ## License
 
-MIT
+Apache 2.0
 
 ## Contributing
 

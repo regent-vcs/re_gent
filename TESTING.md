@@ -25,7 +25,7 @@ mkdir regent-test && cd regent-test
 
 # Verify hook was configured
 cat .claude/settings.json
-# Expected: {"hooks":{"PostToolUse":"rgt hook"}}
+# Expected: {"hooks":{"PostToolUse":[{"matcher":"","hooks":[{"type":"command","command":"rgt hook"}]}]}}
 
 # Check status
 /Users/shay/Projects/regent/rgt status
@@ -179,7 +179,7 @@ cd /tmp/test-claude-regent
 1. Check hook is configured:
    ```bash
    cat .claude/settings.json
-   # Should contain: "PostToolUse": "rgt hook"
+   # Should contain: "PostToolUse": [{"matcher":"","hooks":[{"type":"command","command":"rgt hook"}]}]
    ```
 
 2. Check for errors:
