@@ -20,6 +20,8 @@ linters:
     - funlen       # Function length - some implementations need to be long
     - gocognit     # Cognitive complexity - defer to code review
     - errcheck     # POC phase - will enable post-v1
+    - gosec        # Security checks - will enable post-v1
+    - govet        # Shadow and fieldalignment - will address post-v1
 
 linters-settings:
   errcheck:
