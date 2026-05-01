@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 
+	"github.com/regent-vcs/regent/internal/style"
 	"github.com/spf13/cobra"
 )
 
@@ -19,7 +20,7 @@ func VersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version information",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("rgt version %s (commit: %s)\n", Version, Commit)
+			fmt.Printf("%s version %s (commit: %s)\n", style.Brand("re_gent"), Version, Commit)
 		},
 	}
 

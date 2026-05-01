@@ -7,6 +7,7 @@ import (
 
 	"github.com/regent-vcs/regent/internal/index"
 	"github.com/regent-vcs/regent/internal/store"
+	"github.com/regent-vcs/regent/internal/style"
 	"github.com/spf13/cobra"
 )
 
@@ -44,16 +45,16 @@ func StatusCmd() *cobra.Command {
 				return nil
 			}
 
-			fmt.Printf("Regent repository: %s\n", regentDir)
-			fmt.Printf("Sessions: %d\n\n", len(sessions))
+			fmt.Printf("%s %s %s\n", style.Brand("re_gent"), style.Label("repository:"), regentDir)
+			fmt.Printf("%s %d\n\n", style.Label("Sessions:"), len(sessions))
 
 			for _, sess := range sessions {
-				fmt.Printf("Session: %s\n", sess.ID)
-				fmt.Printf("  Origin: %s\n", sess.Origin)
-				fmt.Printf("  Started: %s\n", sess.StartedAt.Format("2006-01-02 15:04:05"))
-				fmt.Printf("  Last seen: %s\n", sess.LastSeenAt.Format("2006-01-02 15:04:05"))
+				fmt.Printf("%s %s\n", style.Label("Session:"), sess.ID)
+				fmt.Printf("  %s %s\n", style.Label("Origin:"), sess.Origin)
+				fmt.Printf("  %s %s\n", style.Label("Started:"), style.Timestamp(sess.StartedAt.Format("2006-01-02 15:04:05")))
+				fmt.Printf("  %s %s\n", style.Label("Last seen:"), style.Timestamp(sess.LastSeenAt.Format("2006-01-02 15:04:05")))
 				if sess.HeadStepID != "" {
-					fmt.Printf("  Head: %s\n", sess.HeadStepID[:8])
+					fmt.Printf("  %s %s\n", style.Label("Head:"), style.Hash(string(sess.HeadStepID[:8])))
 				}
 				fmt.Println()
 			}

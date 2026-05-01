@@ -7,6 +7,7 @@ import (
 
 	"github.com/regent-vcs/regent/internal/index"
 	"github.com/regent-vcs/regent/internal/store"
+	"github.com/regent-vcs/regent/internal/style"
 	"github.com/spf13/cobra"
 )
 
@@ -16,9 +17,10 @@ func LogCmd() *cobra.Command {
 	var limit int
 
 	cmd := &cobra.Command{
-		Use:   "log",
-		Short: "Show step history",
-		Long:  "Display steps in reverse-chronological order with tool names and causes.",
+		Use:          "log",
+		Short:        "Show step history",
+		Long:         "Display steps in reverse-chronological order with tool names and causes.",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, err := os.Getwd()
 			if err != nil {
@@ -60,19 +62,22 @@ func LogCmd() *cobra.Command {
 				return nil
 			}
 
-			fmt.Printf("Session: %s (%d steps)\n\n", sessionID, len(steps))
+			fmt.Printf("%s %s %s\n\n",
+				style.Label("Session:"),
+				style.Hash(sessionID),
+				style.DimText(fmt.Sprintf("(%d steps)", len(steps))))
 
 			for _, step := range steps {
 				fmt.Printf("%s  %s  %s\n",
-					step.Hash[:8],
-					step.Timestamp.Format("2006-01-02 15:04:05"),
+					style.Hash(string(step.Hash[:8])),
+					style.Timestamp(step.Timestamp.Format("2006-01-02 15:04:05")),
 					step.ToolName,
 				)
 				if step.ToolUseID != "" {
-					fmt.Printf("    tool_use_id: %s\n", step.ToolUseID)
+					fmt.Printf("  %s\n", style.DimText(fmt.Sprintf("tool_use_id: %s", step.ToolUseID)))
 				}
 				if step.ParentHash != "" {
-					fmt.Printf("    parent: %s\n", step.ParentHash[:8])
+					fmt.Printf("  %s\n", style.DimText(fmt.Sprintf("parent: %s", string(step.ParentHash[:8]))))
 				}
 				fmt.Println()
 			}
