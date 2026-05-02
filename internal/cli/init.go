@@ -111,7 +111,7 @@ func printSummary(projectRoot string) {
 	fmt.Println("  • Make some changes (the hook will capture them)")
 	fmt.Println("  • Run: rgt log")
 	fmt.Println("  • Run: rgt blame <file>")
-	fmt.Println("  • Use: /regent-log, /regent-blame in Claude")
+	fmt.Println("  • Use: /log, /blame, /show, /rewind in Claude")
 	fmt.Println()
 	fmt.Printf("%s %s\n", style.Label("Repository:"), filepath.Join(projectRoot, ".regent"))
 	fmt.Println()
@@ -278,10 +278,10 @@ log/
 func offerSkillInstall(projectRoot string) error {
 	fmt.Printf("Claude skills let you use %s commands with slash syntax:\n", style.Brand("re_gent"))
 	fmt.Println()
-	fmt.Println("  /regent-log [limit]      Show step history")
-	fmt.Println("  /regent-blame <file>     Show line provenance")
-	fmt.Println("  /regent-show <step>      Show step details")
-	fmt.Println("  /regent-rewind <step>    Rewind to a step")
+	fmt.Println("  /log [options]       Show step history")
+	fmt.Println("  /blame <file>        Show line provenance")
+	fmt.Println("  /show <step>         Show step details")
+	fmt.Println("  /rewind <step>       Rewind to a step")
 	fmt.Println()
 	fmt.Print(style.Prompt("Install skills?", "[Y/n]:"))
 
@@ -300,7 +300,7 @@ func offerSkillInstall(projectRoot string) error {
 		}
 		fmt.Println()
 		fmt.Printf("  %s Skills installed in .claude/skills/\n", style.Success(""))
-		fmt.Printf("  %s Use /regent-log, /regent-blame, etc. in Claude\n", style.Success(""))
+		fmt.Printf("  %s Use /log, /blame, /show, /rewind in Claude\n", style.Success(""))
 		fmt.Println()
 		return nil
 	}
@@ -318,67 +318,96 @@ func installSkills(projectRoot string) error {
 		return fmt.Errorf("create skills directory: %w", err)
 	}
 
+	// Each skill needs its own directory with a SKILL.md file inside
 	skills := map[string]string{
-		"regent-log.md": `---
-name: regent-log
-description: Show Regent step history for current session
-arguments:
-  - name: limit
-    description: Number of steps to show (default 10)
-    required: false
+		"log": `---
+description: View Regent activity log with step history, filtering, and formatting options. Use when reviewing agent session history, finding specific changes, or understanding what happened in previous steps.
+allowed-tools: Bash(rgt log *)
+argument-hint: "[filter-flags]"
 ---
 
-Show the history of steps in the current Regent session.
+Display the Regent activity log showing captured steps, tool calls, and conversation context.
 
-` + "```bash\nrgt log {{#if limit}}--limit {{limit}}{{/if}}\n```",
+Run the log command with any flags:
+` + "```bash\nrgt log $ARGUMENTS\n```" + `
 
-		"regent-blame.md": `---
-name: regent-blame
-description: Show which step last modified each line
-arguments:
-  - name: file
-    description: File path to blame
-    required: true
-  - name: line
-    description: Specific line number (optional)
-    required: false
+## Common usage
+
+Show recent steps:
+` + "```bash\nrgt log\n```" + `
+
+Filter by session:
+` + "```bash\nrgt log --session <session-id>\n```" + `
+
+Change format:
+` + "```bash\nrgt log --format timeline\nrgt log --format compact\n```",
+
+		"blame": `---
+description: Show which Regent step last modified each line of a file. Use when investigating file provenance, understanding change history, or debugging.
+allowed-tools: Bash(rgt blame *)
+argument-hint: "<file> [line]"
 ---
 
-Show per-line provenance for a file.
+Display per-line provenance showing which step introduced or last modified each line.
 
-` + "```bash\nrgt blame {{file}}{{#if line}}:{{line}}{{/if}}\n```",
+Run blame on a file:
+` + "```bash\nrgt blame $ARGUMENTS\n```" + `
 
-		"regent-show.md": `---
-name: regent-show
-description: Show full context for a step (tool call + conversation)
-arguments:
-  - name: step
-    description: Step hash (short or full)
-    required: true
+## Examples
+
+Blame entire file:
+` + "```bash\nrgt blame src/main.go\n```" + `
+
+Blame specific line:
+` + "```bash\nrgt blame src/main.go:42\n```",
+
+		"show": `---
+description: Show detailed context for a Regent step including tool arguments, result, and conversation. Use when investigating what happened in a specific step.
+allowed-tools: Bash(rgt show *)
+argument-hint: "<step-hash>"
 ---
 
-Display step details including tool arguments, result, and conversation.
+Display full details for a step including:
+- Tool call (name, arguments)
+- Tool result
+- Conversation messages
+- File changes
 
-` + "```bash\nrgt show {{step}}\n```",
+Show step details:
+` + "```bash\nrgt show $ARGUMENTS\n```" + `
 
-		"regent-rewind.md": `---
-name: regent-rewind
-description: Rewind files and conversation to a previous step
-arguments:
-  - name: step
-    description: Step hash to rewind to
-    required: true
+The step hash can be shortened (first 7+ characters).`,
+
+		"rewind": `---
+description: Rewind workspace and conversation to a previous Regent step. Non-destructive with automatic backup. Use when recovering from mistakes or exploring alternative paths.
+allowed-tools: Bash(rgt rewind *)
+argument-hint: "<step-hash>"
+disable-model-invocation: true
 ---
 
-⚠️ This will restore files and conversation. Backup created automatically.
+⚠️ **Warning**: This will restore files and conversation state to the specified step.
 
-` + "```bash\nrgt rewind {{step}}\n```",
+Automatic backup is created at ` + "`" + `.regent/backups/` + "`" + ` before rewinding.
+
+Rewind to a step:
+` + "```bash\nrgt rewind $ARGUMENTS\n```" + `
+
+The step hash can be shortened (first 7+ characters).
+
+After rewinding, the current conversation transcript will be saved and the workspace files will match the target step's state.`,
 	}
 
-	for filename, content := range skills {
-		skillPath := filepath.Join(skillsDir, filename)
+	for skillName, content := range skills {
+		// Create skill directory
+		skillDir := filepath.Join(skillsDir, skillName)
+		if err := os.MkdirAll(skillDir, 0o755); err != nil {
+			return fmt.Errorf("create skill directory %s: %w", skillName, err)
+		}
+
+		// Write SKILL.md inside the directory
+		skillPath := filepath.Join(skillDir, "SKILL.md")
 		if err := os.WriteFile(skillPath, []byte(content), 0o644); err != nil {
-			return fmt.Errorf("write skill %s: %w", filename, err)
+			return fmt.Errorf("write skill %s: %w", skillName, err)
 		}
 	}
 
