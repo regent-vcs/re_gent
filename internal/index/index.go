@@ -77,6 +77,12 @@ func createSchema(db *sql.DB) error {
 		last_seen_at  INTEGER NOT NULL,
 		head_step_id  TEXT
 	);
+
+	CREATE TABLE IF NOT EXISTS session_transcript (
+		session_id           TEXT PRIMARY KEY,
+		last_message_id      TEXT NOT NULL,
+		last_transcript_hash TEXT NOT NULL
+	);
 	`
 
 	_, err := db.Exec(schema)
@@ -158,18 +164,23 @@ func (idx *DB) SessionHead(sessionID string) (store.Hash, error) {
 
 // StepInfo holds displayable info about a step
 type StepInfo struct {
-	Hash       store.Hash
-	ParentHash store.Hash
-	SessionID  string
-	Timestamp  time.Time
-	ToolName   string
-	ToolUseID  string
+	Hash           store.Hash
+	ParentHash     store.Hash
+	SessionID      string
+	Timestamp      time.Time
+	ToolName       string
+	ToolUseID      string
+	TreeHash       store.Hash
+	TranscriptHash store.Hash
+	ArgsBlob       store.Hash
+	ResultBlob     store.Hash
 }
 
 // ListSteps returns recent steps for a session (newest first)
 func (idx *DB) ListSteps(sessionID string, limit int) ([]StepInfo, error) {
 	query := `
-		SELECT id, parent_id, session_id, ts_nanos, tool_name, tool_use_id
+		SELECT id, parent_id, session_id, ts_nanos, tool_name, tool_use_id,
+		       tree_hash, transcript_hash
 		FROM steps
 		WHERE session_id = ?
 		ORDER BY ts_nanos DESC
@@ -186,15 +197,20 @@ func (idx *DB) ListSteps(sessionID string, limit int) ([]StepInfo, error) {
 	for rows.Next() {
 		var s StepInfo
 		var parentHash sql.NullString
+		var transcriptHash sql.NullString
 		var tsNanos int64
 
-		err := rows.Scan(&s.Hash, &parentHash, &s.SessionID, &tsNanos, &s.ToolName, &s.ToolUseID)
+		err := rows.Scan(&s.Hash, &parentHash, &s.SessionID, &tsNanos, &s.ToolName, &s.ToolUseID,
+			&s.TreeHash, &transcriptHash)
 		if err != nil {
 			return nil, err
 		}
 
 		if parentHash.Valid {
 			s.ParentHash = store.Hash(parentHash.String)
+		}
+		if transcriptHash.Valid {
+			s.TranscriptHash = store.Hash(transcriptHash.String)
 		}
 		s.Timestamp = time.Unix(0, tsNanos)
 
@@ -246,4 +262,35 @@ type SessionInfo struct {
 	StartedAt  time.Time
 	LastSeenAt time.Time
 	HeadStepID store.Hash
+}
+
+// SessionLastProcessedMessage returns the last message ID and transcript hash for a session
+// Returns ("", "", nil) if session has no transcript history yet
+func (idx *DB) SessionLastProcessedMessage(sessionID string) (string, store.Hash, error) {
+	var lastMsgID string
+	var lastTranscript string
+
+	err := idx.db.QueryRow(`
+		SELECT last_message_id, last_transcript_hash
+		FROM session_transcript
+		WHERE session_id = ?
+	`, sessionID).Scan(&lastMsgID, &lastTranscript)
+
+	if err == sql.ErrNoRows {
+		return "", "", nil // New session
+	}
+	if err != nil {
+		return "", "", err
+	}
+
+	return lastMsgID, store.Hash(lastTranscript), nil
+}
+
+// UpdateSessionLastProcessed records the last processed message for a session
+func (idx *DB) UpdateSessionLastProcessed(sessionID, lastMsgID string, transcriptHash store.Hash) error {
+	_, err := idx.db.Exec(`
+		INSERT OR REPLACE INTO session_transcript (session_id, last_message_id, last_transcript_hash)
+		VALUES (?, ?, ?)
+	`, sessionID, lastMsgID, string(transcriptHash))
+	return err
 }

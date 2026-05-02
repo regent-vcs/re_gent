@@ -7,7 +7,6 @@ import (
 
 	"github.com/regent-vcs/regent/internal/index"
 	"github.com/regent-vcs/regent/internal/store"
-	"github.com/regent-vcs/regent/internal/style"
 	"github.com/spf13/cobra"
 )
 
@@ -15,11 +14,14 @@ import (
 func LogCmd() *cobra.Command {
 	var sessionID string
 	var limit int
+	var oneline bool
+	var jsonOut bool
+	var stat bool
 
 	cmd := &cobra.Command{
 		Use:          "log",
 		Short:        "Show step history",
-		Long:         "Display steps in reverse-chronological order with tool names and causes.",
+		Long:         "Display steps in reverse-chronological order with tool names and files affected.",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, err := os.Getwd()
@@ -62,32 +64,34 @@ func LogCmd() *cobra.Command {
 				return nil
 			}
 
-			fmt.Printf("%s %s %s\n\n",
-				style.Label("Session:"),
-				style.Hash(sessionID),
-				style.DimText(fmt.Sprintf("(%d steps)", len(steps))))
-
-			for _, step := range steps {
-				fmt.Printf("%s  %s  %s\n",
-					style.Hash(string(step.Hash[:8])),
-					style.Timestamp(step.Timestamp.Format("2006-01-02 15:04:05")),
-					step.ToolName,
-				)
-				if step.ToolUseID != "" {
-					fmt.Printf("  %s\n", style.DimText(fmt.Sprintf("tool_use_id: %s", step.ToolUseID)))
-				}
-				if step.ParentHash != "" {
-					fmt.Printf("  %s\n", style.DimText(fmt.Sprintf("parent: %s", string(step.ParentHash[:8]))))
-				}
-				fmt.Println()
+			// Enrich steps with files, args, results
+			enriched, err := enrichSteps(s, steps)
+			if err != nil {
+				return fmt.Errorf("enrich steps: %w", err)
 			}
 
-			return nil
+			// Determine formatter
+			var formatter LogFormatter
+			if oneline {
+				formatter = &OnelineFormatter{}
+			} else if jsonOut {
+				formatter = &JSONFormatter{}
+			} else if stat {
+				formatter = &StatFormatter{}
+			} else {
+				formatter = &DefaultFormatter{}
+			}
+
+			// Format and output
+			return formatter.Format(enriched, sessionID, os.Stdout)
 		},
 	}
 
 	cmd.Flags().StringVar(&sessionID, "session", "", "Session ID to show (defaults to most recent)")
 	cmd.Flags().IntVarP(&limit, "limit", "n", 20, "Maximum number of steps to show")
+	cmd.Flags().BoolVar(&oneline, "oneline", false, "Show one line per step (compact)")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&stat, "stat", false, "Show file statistics")
 
 	return cmd
 }
