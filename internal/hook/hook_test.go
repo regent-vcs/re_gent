@@ -330,3 +330,136 @@ func TestHookStoresToolArgsAndResult(t *testing.T) {
 		}
 	}
 }
+
+func TestHookComputesBlame(t *testing.T) {
+	workspace := t.TempDir()
+	s, err := store.Init(workspace)
+	if err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	idx, err := index.Open(s)
+	if err != nil {
+		t.Fatalf("Open index failed: %v", err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	// Step 1: Create file with 3 lines
+	testFile := filepath.Join(workspace, "test.txt")
+	err = os.WriteFile(testFile, []byte("line1\nline2\nline3\n"), 0644)
+	if err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	payload1 := Payload{
+		SessionID:    "test-session",
+		ToolUseID:    "tool_write_1",
+		ToolName:     "Write",
+		ToolInput:    json.RawMessage(`{"file_path":"test.txt","content":"line1\nline2\nline3\n"}`),
+		ToolResponse: json.RawMessage(`{"success":true}`),
+		CWD:          workspace,
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(payload1); err != nil {
+		t.Fatalf("Encode payload1 failed: %v", err)
+	}
+
+	err = Run(&buf, io.Discard)
+	if err != nil {
+		t.Fatalf("Hook step 1 failed: %v", err)
+	}
+
+	// Step 2: Edit file (change line 2)
+	err = os.WriteFile(testFile, []byte("line1\nmodified line2\nline3\n"), 0644)
+	if err != nil {
+		t.Fatalf("WriteFile step 2 failed: %v", err)
+	}
+
+	payload2 := Payload{
+		SessionID:    "test-session",
+		ToolUseID:    "tool_edit_2",
+		ToolName:     "Edit",
+		ToolInput:    json.RawMessage(`{"file_path":"test.txt","old_string":"line2","new_string":"modified line2"}`),
+		ToolResponse: json.RawMessage(`{"success":true}`),
+		CWD:          workspace,
+	}
+
+	buf.Reset()
+	if err := json.NewEncoder(&buf).Encode(payload2); err != nil {
+		t.Fatalf("Encode payload2 failed: %v", err)
+	}
+
+	err = Run(&buf, io.Discard)
+	if err != nil {
+		t.Fatalf("Hook step 2 failed: %v", err)
+	}
+
+	// Verify steps were created
+	steps, err := idx.ListSteps("test-session", 10)
+	if err != nil {
+		t.Fatalf("ListSteps failed: %v", err)
+	}
+
+	if len(steps) != 2 {
+		t.Fatalf("Expected 2 steps, got %d", len(steps))
+	}
+
+	step2 := steps[0] // Most recent first
+	step1 := steps[1]
+
+	// Read tree and blame from step 2
+	step2Obj, err := s.ReadStep(step2.Hash)
+	if err != nil {
+		t.Fatalf("ReadStep failed: %v", err)
+	}
+
+	tree, err := s.ReadTree(step2Obj.Tree)
+	if err != nil {
+		t.Fatalf("ReadTree failed: %v", err)
+	}
+
+	// Find test.txt entry
+	var entry *store.TreeEntry
+	for i := range tree.Entries {
+		if tree.Entries[i].Path == "test.txt" {
+			entry = &tree.Entries[i]
+			break
+		}
+	}
+
+	if entry == nil {
+		t.Fatalf("test.txt not found in tree")
+	}
+
+	if entry.Blame == "" {
+		t.Fatalf("Expected blame map for test.txt, got empty")
+	}
+
+	// Read blame map
+	blame, err := s.ReadBlame(entry.Blame)
+	if err != nil {
+		t.Fatalf("ReadBlame failed: %v", err)
+	}
+
+	if len(blame.Lines) != 3 {
+		t.Fatalf("Expected 3 blame lines, got %d", len(blame.Lines))
+	}
+
+	// Verify blame attribution
+	// Lines 1 and 3 should have same attribution (unchanged)
+	// Line 2 should have different attribution (modified)
+	if blame.Lines[0] == blame.Lines[1] {
+		t.Errorf("Line 1 and line 2 should have different attribution")
+	}
+
+	if blame.Lines[0] != blame.Lines[2] {
+		t.Errorf("Line 1 and line 3 should have same attribution")
+	}
+
+	t.Logf("Step 1: %s", step1.Hash)
+	t.Logf("Step 2: %s", step2.Hash)
+	t.Logf("Blame line 1: %s", blame.Lines[0])
+	t.Logf("Blame line 2: %s", blame.Lines[1])
+	t.Logf("Blame line 3: %s", blame.Lines[2])
+}

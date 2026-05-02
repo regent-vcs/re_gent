@@ -1,7 +1,6 @@
 package store
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,7 +38,7 @@ func Init(workspaceRoot string) (*Store, error) {
 	regentDir := filepath.Join(workspaceRoot, ".regent")
 
 	if _, err := os.Stat(regentDir); err == nil {
-		return nil, errors.New("regent store already exists")
+		return nil, fmt.Errorf(".regent/ already exists in %s\n  Use 'rgt status' to check existing repository", workspaceRoot)
 	}
 
 	// Create directory structure

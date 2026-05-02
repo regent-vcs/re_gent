@@ -15,10 +15,11 @@ func CatCmd() *cobra.Command {
 	var pretty bool
 
 	cmd := &cobra.Command{
-		Use:   "cat <hash>",
-		Short: "Dump an object by hash",
-		Long:  "Debug command: reads and displays the content of any object in the store.",
-		Args:  cobra.ExactArgs(1),
+		Use:          "cat <hash>",
+		Short:        "Dump an object by hash",
+		Long:         "Debug command: reads and displays the content of any object in the store.",
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hash := store.Hash(args[0])
 

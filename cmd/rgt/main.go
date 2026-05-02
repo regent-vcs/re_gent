@@ -21,6 +21,8 @@ func main() {
 	rootCmd.AddCommand(cli.SessionsCmd())
 	rootCmd.AddCommand(cli.CatCmd())
 	rootCmd.AddCommand(cli.HookCmd())
+	rootCmd.AddCommand(cli.BlameCmd())
+	rootCmd.AddCommand(cli.ShowCmd())
 	rootCmd.AddCommand(cli.VersionCmd())
 
 	if err := rootCmd.Execute(); err != nil {
