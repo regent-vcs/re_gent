@@ -10,112 +10,138 @@
   <br />
   <h1>Git for AI Agents</h1>
   <p>
-    <em>We gave agents write access to our codebases.<br/>We did not give ourselves git for it.</em>
+    Version control for AI agent activity. Track what your agent did, which prompt wrote each line, and rewind when things break.
   </p>
 
 [![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen?logo=github)](CONTRIBUTING.md) [![Go Version](https://img.shields.io/github/go-mod/go-version/regent-vcs/regent)](go.mod) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-  <br />
 </div>
-
----
-
-## The Problem
-
-You know this pain:
-- *"It was working five minutes ago"*
-- *"Go back to before the refactor"*
-- *"Why did you change that file?"*
-- `/compact` and pray
-- Copy-pasting code into a fresh chat
-- Screenshotting the "good" version
-
-**AI agents have no version control of their own.**
-
----
-
-## The Solution
-
-Regent gives you three primitives that should already exist:
-
-### **blame** — which prompt wrote this line?
-```bash
-$ rgt blame src/handler.go:42
-Line 42: func handleRequest(w http.ResponseWriter, r *http.Request) {
-│
-├─ Step: a1b2c3d4
-├─ Session: claude-20260502-143021
-├─ Tool: Edit
-└─ Prompt: "Add error handling to the request handler"
-```
-
-### **log** — what did this session actually do?
-```bash
-$ rgt log
-Step a1b2c3d  |  2 min ago  |  Tool: Edit
-│ File: src/handler.go
-│ Added error handling
-│ + 5 lines, - 2 lines
-
-Step d4e5f6g  |  5 min ago  |  Tool: Write
-│ File: tests/handler_test.go
-│ Created unit tests
-│ + 23 lines
-```
-
-### **rewind** — restore to step N (coming soon)
-```bash
-$ rgt rewind a1b2c3d
-✓ Restored workspace to step a1b2c3d
-✓ Session ref moved backward
-✓ Audit trail intact (non-destructive)
-```
 
 ---
 
 ## Demo
 
 <div align="center">
-  <img src="assets/demo.gif" alt="Regent tracking Claude Code activity" width="800"/>
-  <p><em>Regent automatically captures every tool call your agent makes</em></p>
+  <img src="assets/demo.gif" alt="Regent tracking Claude Code activity" width="100%"/>
+  <p><em>Every tool call is automatically captured. No manual commits needed.</em></p>
 </div>
-
-**No manual commits.** Hooks into Claude Code, tracks everything transparently.
 
 ---
 
 ## Quick Start
 
-### Installation
-
 ```bash
-# Install via Go
+# Install
 go install github.com/regent-vcs/regent/cmd/rgt@latest
 
-# Or build from source
-git clone https://github.com/regent-vcs/regent
-cd regent
-go build -o rgt ./cmd/rgt
-```
-
-### Usage
-
-```bash
-# 1. Initialize in your project
+# Initialize in your project
 cd your-project
 rgt init
-# Press Y when prompted to enable Claude Code hook
 
-# 2. Work with Claude Code normally
-# (every Edit, Write, Bash is automatically tracked)
+# Work with Claude Code normally (every tool call is tracked)
 
-# 3. Explore what happened
-rgt log              # See step history
-rgt sessions         # List active sessions
-rgt show <step>      # View full context
+# See what happened
+rgt log
 ```
 
-That's it. Every agent action is now auditable.
+That's it. Your agent activity is now auditable.
+
+---
+
+## What You Get
+
+### See what your agent actually did
+
+```bash
+$ rgt log
+
+Step a1b2c3d  |  2 min ago  |  Tool: Edit
+│ File: src/handler.go
+│ Added error handling to request handler
+│ + 5 lines, - 2 lines
+
+Step d4e5f6g  |  5 min ago  |  Tool: Write
+│ File: tests/handler_test.go
+│ Created unit tests for handler
+│ + 23 lines
+
+Step f8g9h0i  |  8 min ago  |  Tool: Bash
+│ Command: go mod tidy
+│ Cleaned up dependencies
+```
+
+### Blame: which prompt wrote this line?
+
+```bash
+$ rgt blame src/handler.go:42
+
+Line 42: func handleRequest(w http.ResponseWriter, r *http.Request) {
+
+Step:    a1b2c3d4e5f6
+Session: claude-20260502-143021
+Tool:    Edit
+Prompt:  "Add error handling to the request handler"
+```
+
+### Track multiple concurrent sessions
+
+```bash
+$ rgt sessions
+
+Active Sessions:
+claude-20260502-143021  |  3 steps  |  Last: 2 min ago
+claude-20260502-091534  |  7 steps  |  Last: 2 hours ago
+
+$ rgt log --session claude-20260502-143021
+# Filter history by session
+```
+
+### See full context for any change
+
+```bash
+$ rgt show a1b2c3d
+
+Step a1b2c3d4e5f6
+Parent: d4e5f6g7h8i9
+Session: claude-20260502-143021
+Time: 2026-05-02 14:30:21
+
+Tool: Edit
+File: src/handler.go
+
+Changes:
++ func handleRequest(w http.ResponseWriter, r *http.Request) {
++     if r.Method != "GET" {
++         http.Error(w, "Method not allowed", 405)
++         return
++     }
+- func handleRequest(w http.ResponseWriter, r *http.Request) {
+
+Conversation:
+User: "Add error handling to reject non-GET requests"
+Assistant: "I'll add method validation to the handler..."
+```
+
+---
+
+## Why This Exists
+
+**The problem:** AI agents have no version control of their own.
+
+You know this pain:
+- *"It was working five minutes ago"*
+- *"Why did you change that file?"*
+- *"Go back to before the refactor"*
+- `/compact` and pray
+- Copy-pasting code into a fresh chat
+
+**The solution:** Three primitives that should already exist:
+
+- **`rgt log`** — what did this session do?
+- **`rgt blame`** — which prompt wrote this line?
+- **`rgt rewind`** — restore to any previous step (coming soon)
+
+We gave agents write access to our codebases. We did not give ourselves git for it. Regent fixes that.
 
 ---
 
@@ -148,7 +174,68 @@ Step {
 }
 ```
 
-Steps form a **DAG**. Each session has its own branch. Common ancestors dedupe. You get git-level auditability for AI activity.
+Steps form a **DAG**. Each session has its own branch. Common ancestors dedupe. You get git-level auditability for agent activity.
+
+**Technical details:** See [POC.md](POC.md) for the complete specification.
+
+---
+
+## Installation
+
+### Via Go Install (Recommended)
+
+```bash
+go install github.com/regent-vcs/regent/cmd/rgt@latest
+```
+
+### From Source
+
+```bash
+git clone https://github.com/regent-vcs/regent
+cd regent
+go build -o rgt ./cmd/rgt
+sudo mv rgt /usr/local/bin/
+```
+
+### Coming Soon
+
+- Homebrew: `brew install regent-vcs/tap/rgt`
+- Binary releases: [GitHub Releases](https://github.com/regent-vcs/regent/releases)
+
+---
+
+## Commands
+
+**Available Now:**
+
+| Command | Description |
+|---------|-------------|
+| `rgt init` | Initialize `.regent/` in current directory |
+| `rgt log` | Show step history (supports `--session`, `-n`, `--since`) |
+| `rgt sessions` | List all active sessions |
+| `rgt status` | Show current repository state |
+| `rgt show <step>` | Display full context for a step |
+| `rgt cat <hash>` | Inspect any object by hash (debug) |
+
+**Coming Soon:**
+
+| Command | Status | Description |
+|---------|--------|-------------|
+| `rgt blame <path>:<line>` | Phase 3 | Per-line provenance with prompt |
+| `rgt rewind <step>` | Phase 5 | Non-destructive time-travel |
+| `rgt gc` | Phase 6 | Garbage collection |
+
+---
+
+## Features
+
+- **Content-Addressed Storage** — BLAKE3 hashing, automatic deduplication
+- **Fast Queries** — SQLite index, sub-10ms lookups
+- **Per-Session DAG** — Concurrent agents, no conflicts
+- **Conversation Tracking** — Survives `/compact` and `/clear`
+- **Hook-Driven** — Transparent Claude Code integration
+- **Concurrency-Safe** — CAS refs, ACID transactions
+- **Gitignore-Compatible** — `.regentignore` support
 
 ---
 
@@ -167,61 +254,16 @@ Steps form a **DAG**. Each session has its own branch. Common ancestors dedupe. 
 
 ---
 
-## Features
-
-- **Content-Addressed Storage** — BLAKE3, automatic deduplication
-- **Fast Queries** — SQLite index, sub-10ms lookups
-- **Per-Session DAG** — Concurrent agents, no conflicts
-- **Conversation Tracking** — Survives `/compact` and `/clear`
-- **Hook-Driven** — Transparent Claude Code integration
-- **Concurrency-Safe** — CAS refs, ACID transactions
-- **Gitignore-Compatible** — `.regentignore` support
-
----
-
-## Commands
-
-**Available Now:**
-- `rgt init` — Initialize `.regent/`
-- `rgt log` — Show step history
-- `rgt sessions` — List active sessions
-- `rgt status` — Current state
-- `rgt show <step>` — Full step details
-
-**Coming Soon:**
-- `rgt blame <path>:<line>` — Per-line provenance (Phase 3)
-- `rgt rewind <step>` — Non-destructive time-travel (Phase 5)
-- `rgt gc` — Garbage collection (Phase 6)
-
-See [POC.md](POC.md) for the complete technical specification.
-
----
-
 ## Roadmap
 
-- **Phase 1:** Object store (blob, tree, step, ref) — COMPLETE
-- **Phase 2:** Hook integration (Claude Code) — COMPLETE
-- **Phase 3:** Blame algorithm (Myers diff) — IN PROGRESS
-- **Phase 4:** Transcript capture (JSONL) — PLANNED
-- **Phase 5:** Rewind (time-travel) — PLANNED
-- **Phase 6:** Concurrency hardening — PLANNED
+- **Phase 1:** Object store (blob, tree, step, ref) — **COMPLETE**
+- **Phase 2:** Hook integration (Claude Code) — **COMPLETE**
+- **Phase 3:** Blame algorithm (Myers diff) — **IN PROGRESS**
+- **Phase 4:** Transcript capture (JSONL) — **PLANNED**
+- **Phase 5:** Rewind (time-travel) — **PLANNED**
+- **Phase 6:** Concurrency hardening — **PLANNED**
 
 Check [GitHub Projects](https://github.com/regent-vcs/regent/projects) for current priorities.
-
----
-
-## Why This Matters
-
-AI agents are getting more autonomous. They fix their own code, operate in production, generate real business value.
-
-**But autonomy without auditability is chaos.**
-
-You need to answer:
-- *"What changed?"* → `rgt log`
-- *"Why?"* → `rgt blame`
-- *"Can I undo it?"* → `rgt rewind`
-
-Regent is the infrastructure layer that makes agent activity **inspectable, reversible, and shareable.**
 
 ---
 
@@ -234,7 +276,7 @@ Regent is the infrastructure layer that makes agent activity **inspectable, reve
 - Used in production by contributors
 - Not yet v1.0 (see roadmap)
 
-**Honest assessment:** This is production-quality code at POC-level feature completeness. We're building in public. Contributions welcome.
+**Honest assessment:** Production-quality code at POC-level feature completeness. We're building in public.
 
 ---
 
@@ -245,8 +287,8 @@ We use [GitHub Flow](https://guides.github.com/introduction/flow). Create a bran
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 **Before opening a PR:**
-- [ ] Tests pass (`go test ./...`)
-- [ ] Code formatted (`gofmt -w .`)
+- [ ] Tests pass: `go test ./...`
+- [ ] Code formatted: `gofmt -w .`
 - [ ] Read [BRAND.md](BRAND.md) if touching CLI output
 
 ---
