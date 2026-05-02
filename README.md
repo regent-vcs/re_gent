@@ -38,7 +38,7 @@ You know this pain:
 
 Regent gives you three primitives that should already exist:
 
-### 🔍 **blame** — which prompt wrote this line?
+### **blame** — which prompt wrote this line?
 ```bash
 $ rgt blame src/handler.go:42
 Line 42: func handleRequest(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +49,7 @@ Line 42: func handleRequest(w http.ResponseWriter, r *http.Request) {
 └─ Prompt: "Add error handling to the request handler"
 ```
 
-### 📜 **log** — what did this session actually do?
+### **log** — what did this session actually do?
 ```bash
 $ rgt log
 Step a1b2c3d  |  2 min ago  |  Tool: Edit
@@ -63,7 +63,7 @@ Step d4e5f6g  |  5 min ago  |  Tool: Write
 │ + 23 lines
 ```
 
-### ⏪ **rewind** — restore to step N (coming soon)
+### **rewind** — restore to step N (coming soon)
 ```bash
 $ rgt rewind a1b2c3d
 ✓ Restored workspace to step a1b2c3d
@@ -169,13 +169,13 @@ Steps form a **DAG**. Each session has its own branch. Common ancestors dedupe. 
 
 ## Features
 
-- 👑 **Content-Addressed Storage** — BLAKE3, automatic deduplication
-- ⚡ **Fast Queries** — SQLite index, sub-10ms lookups
-- 📊 **Per-Session DAG** — Concurrent agents, no conflicts
-- 💬 **Conversation Tracking** — Survives `/compact` and `/clear`
-- 🪝 **Hook-Driven** — Transparent Claude Code integration
-- 🔒 **Concurrency-Safe** — CAS refs, ACID transactions
-- 🎯 **Gitignore-Compatible** — `.regentignore` support
+- **Content-Addressed Storage** — BLAKE3, automatic deduplication
+- **Fast Queries** — SQLite index, sub-10ms lookups
+- **Per-Session DAG** — Concurrent agents, no conflicts
+- **Conversation Tracking** — Survives `/compact` and `/clear`
+- **Hook-Driven** — Transparent Claude Code integration
+- **Concurrency-Safe** — CAS refs, ACID transactions
+- **Gitignore-Compatible** — `.regentignore` support
 
 ---
 
@@ -199,12 +199,12 @@ See [POC.md](POC.md) for the complete technical specification.
 
 ## Roadmap
 
-- ✅ **Phase 1:** Object store (blob, tree, step, ref)
-- ✅ **Phase 2:** Hook integration (Claude Code)
-- 🚧 **Phase 3:** Blame algorithm (Myers diff)
-- 📋 **Phase 4:** Transcript capture (JSONL)
-- 📋 **Phase 5:** Rewind (time-travel)
-- 📋 **Phase 6:** Concurrency hardening
+- **Phase 1:** Object store (blob, tree, step, ref) — COMPLETE
+- **Phase 2:** Hook integration (Claude Code) — COMPLETE
+- **Phase 3:** Blame algorithm (Myers diff) — IN PROGRESS
+- **Phase 4:** Transcript capture (JSONL) — PLANNED
+- **Phase 5:** Rewind (time-travel) — PLANNED
+- **Phase 6:** Concurrency hardening — PLANNED
 
 Check [GitHub Projects](https://github.com/regent-vcs/regent/projects) for current priorities.
 
@@ -268,11 +268,11 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 <div align="center">
   <p>
-    <sub>Built with ❤︎ by <a href="https://github.com/regent-vcs/regent/graphs/contributors">contributors</a></sub>
+    <sub>Built by <a href="https://github.com/regent-vcs/regent/graphs/contributors">contributors</a></sub>
   </p>
   <p>
-    <a href="https://github.com/regent-vcs/regent/discussions">💬 Discussions</a> •
-    <a href="https://github.com/regent-vcs/regent/issues">🐛 Issues</a> •
-    <a href="POC.md">📖 Technical Spec</a>
+    <a href="https://github.com/regent-vcs/regent/discussions">Discussions</a> •
+    <a href="https://github.com/regent-vcs/regent/issues">Issues</a> •
+    <a href="POC.md">Technical Spec</a>
   </p>
 </div>
