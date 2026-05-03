@@ -463,3 +463,208 @@ func TestHookComputesBlame(t *testing.T) {
 	t.Logf("Blame line 2: %s", blame.Lines[1])
 	t.Logf("Blame line 3: %s", blame.Lines[2])
 }
+
+func TestShouldSkipStep_RgtCommands(t *testing.T) {
+	tests := []struct {
+		name     string
+		toolName string
+		command  string
+		wantSkip bool
+	}{
+		{
+			name:     "rgt log should be skipped",
+			toolName: "Bash",
+			command:  "rgt log",
+			wantSkip: true,
+		},
+		{
+			name:     "rgt blame should be skipped",
+			toolName: "Bash",
+			command:  "rgt blame file.go",
+			wantSkip: true,
+		},
+		{
+			name:     "rgt show should be skipped",
+			toolName: "Bash",
+			command:  "rgt show abc123",
+			wantSkip: true,
+		},
+		{
+			name:     "rgt with leading whitespace should be skipped",
+			toolName: "Bash",
+			command:  "  rgt status  ",
+			wantSkip: true,
+		},
+		{
+			name:     "just 'rgt' should be skipped",
+			toolName: "Bash",
+			command:  "rgt",
+			wantSkip: true,
+		},
+		{
+			name:     "grep rgt should NOT be skipped",
+			toolName: "Bash",
+			command:  "grep rgt file.go",
+			wantSkip: false,
+		},
+		{
+			name:     "echo rgt should NOT be skipped",
+			toolName: "Bash",
+			command:  "echo 'rgt log output'",
+			wantSkip: false,
+		},
+		{
+			name:     "build-rgt.sh should NOT be skipped",
+			toolName: "Bash",
+			command:  "./build-rgt.sh",
+			wantSkip: false,
+		},
+		{
+			name:     "Write tool should NOT be skipped",
+			toolName: "Write",
+			command:  "",
+			wantSkip: false,
+		},
+		{
+			name:     "Edit tool should NOT be skipped",
+			toolName: "Edit",
+			command:  "",
+			wantSkip: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			toolInput := json.RawMessage(`{}`)
+			if tt.toolName == "Bash" {
+				toolInput = json.RawMessage(`{"command":"` + tt.command + `"}`)
+			}
+
+			p := &Payload{
+				ToolName:  tt.toolName,
+				ToolInput: toolInput,
+			}
+
+			got := shouldSkipStep(p)
+			if got != tt.wantSkip {
+				t.Errorf("shouldSkipStep() = %v, want %v", got, tt.wantSkip)
+			}
+		})
+	}
+}
+
+func TestShouldSkipStep_MalformedInput(t *testing.T) {
+	// Test that malformed input doesn't skip (fail-safe)
+	p := &Payload{
+		ToolName:  "Bash",
+		ToolInput: json.RawMessage(`{invalid json`),
+	}
+
+	if shouldSkipStep(p) {
+		t.Error("shouldSkipStep() should return false for malformed JSON")
+	}
+}
+
+func TestRgtCommandFiltering_Integration(t *testing.T) {
+	workspace := t.TempDir()
+
+	// Initialize regent
+	s, err := store.Init(workspace)
+	if err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	idx, err := index.Open(s)
+	if err != nil {
+		t.Fatalf("Open index failed: %v", err)
+	}
+	defer idx.Close()
+
+	// Create a dummy transcript file
+	transcriptPath := filepath.Join(workspace, "transcript.jsonl")
+	if err := os.WriteFile(transcriptPath, []byte(""), 0644); err != nil {
+		t.Fatalf("Create transcript failed: %v", err)
+	}
+
+	// Create a test file for the workspace
+	testFile := filepath.Join(workspace, "test.txt")
+	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+		t.Fatalf("Create test file failed: %v", err)
+	}
+
+	// Test 1: Normal Bash command should create a step
+	payload1 := Payload{
+		SessionID:      "test-session",
+		ToolUseID:      "tool_001",
+		ToolName:       "Bash",
+		ToolInput:      json.RawMessage(`{"command":"ls -la"}`),
+		ToolResponse:   json.RawMessage(`{"output":"test.txt"}`),
+		CWD:            workspace,
+		TranscriptPath: transcriptPath,
+	}
+
+	var buf bytes.Buffer
+	payloadJSON1, _ := json.Marshal(payload1)
+	if err := Run(bytes.NewReader(payloadJSON1), &buf); err != nil {
+		t.Fatalf("Run failed for normal command: %v", err)
+	}
+
+	// Verify step was created
+	steps1, err := idx.ListSteps("test-session", 10)
+	if err != nil {
+		t.Fatalf("ListSteps failed: %v", err)
+	}
+	if len(steps1) != 1 {
+		t.Fatalf("Expected 1 step after normal command, got %d", len(steps1))
+	}
+
+	// Test 2: rgt command should NOT create a step
+	payload2 := Payload{
+		SessionID:      "test-session",
+		ToolUseID:      "tool_002",
+		ToolName:       "Bash",
+		ToolInput:      json.RawMessage(`{"command":"rgt log"}`),
+		ToolResponse:   json.RawMessage(`{"output":"some log output"}`),
+		CWD:            workspace,
+		TranscriptPath: transcriptPath,
+	}
+
+	payloadJSON2, _ := json.Marshal(payload2)
+	if err := Run(bytes.NewReader(payloadJSON2), &buf); err != nil {
+		t.Fatalf("Run failed for rgt command: %v", err)
+	}
+
+	// Verify NO new step was created
+	steps2, err := idx.ListSteps("test-session", 10)
+	if err != nil {
+		t.Fatalf("ListSteps failed: %v", err)
+	}
+	if len(steps2) != 1 {
+		t.Fatalf("Expected 1 step after rgt command (should be skipped), got %d", len(steps2))
+	}
+
+	// Test 3: Command containing rgt but not starting with it should create a step
+	payload3 := Payload{
+		SessionID:      "test-session",
+		ToolUseID:      "tool_003",
+		ToolName:       "Bash",
+		ToolInput:      json.RawMessage(`{"command":"grep rgt README.md"}`),
+		ToolResponse:   json.RawMessage(`{"output":"matched lines"}`),
+		CWD:            workspace,
+		TranscriptPath: transcriptPath,
+	}
+
+	payloadJSON3, _ := json.Marshal(payload3)
+	if err := Run(bytes.NewReader(payloadJSON3), &buf); err != nil {
+		t.Fatalf("Run failed for grep command: %v", err)
+	}
+
+	// Verify step WAS created
+	steps3, err := idx.ListSteps("test-session", 10)
+	if err != nil {
+		t.Fatalf("ListSteps failed: %v", err)
+	}
+	if len(steps3) != 2 {
+		t.Fatalf("Expected 2 steps after grep command, got %d", len(steps3))
+	}
+}

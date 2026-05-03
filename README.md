@@ -13,7 +13,7 @@
     Version control for AI agent activity. Track what your agent did, which prompt wrote each line, and rewind when things break.
   </p>
 
-[![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen?logo=github)](CONTRIBUTING.md) [![Go Version](https://img.shields.io/github/go-mod/go-version/regent-vcs/regent)](go.mod) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![CI](https://github.com/regent-vcs/regent/actions/workflows/ci.yml/badge.svg)](https://github.com/regent-vcs/regent/actions/workflows/ci.yml) [![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen?logo=github)](CONTRIBUTING.md) [![Go Version](https://img.shields.io/github/go-mod/go-version/regent-vcs/regent)](go.mod) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 </div>
 
@@ -31,8 +31,12 @@
 ## Quick Start
 
 ```bash
-# Install
+# Install from source (easiest for now)
 go install github.com/regent-vcs/regent/cmd/rgt@latest
+
+# Or via Homebrew (macOS)
+brew tap regent-vcs/tap
+brew install regent
 
 # Initialize in your project
 cd your-project
@@ -282,14 +286,24 @@ Check [GitHub Projects](https://github.com/regent-vcs/regent/projects) for curre
 
 ## Contributing
 
-We use [GitHub Flow](https://guides.github.com/introduction/flow). Create a branch, add commits, [open a PR](https://github.com/regent-vcs/regent/compare).
+Contributions are welcome! Regent is built in public and we actively review PRs.
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+**Quick Start:**
+- Read [QUICK_START.md](.github/QUICK_START.md) for a 5-minute setup guide
+- Check [good first issues](https://github.com/regent-vcs/regent/labels/good%20first%20issue)
+- Full guidelines: [CONTRIBUTING.md](.github/CONTRIBUTING.md)
 
 **Before opening a PR:**
-- [ ] Tests pass: `go test ./...`
-- [ ] Code formatted: `gofmt -w .`
-- [ ] Read [BRAND.md](BRAND.md) if touching CLI output
+- [ ] Tests pass: `go test ./...` and `go test -race ./...`
+- [ ] Linter passes: `golangci-lint run`
+- [ ] Code formatted: `go fmt ./...`
+- [ ] PR template filled out
+
+**Important files:**
+- [CONTRIBUTING.md](.github/CONTRIBUTING.md) — Full contribution guide
+- [SECURITY.md](SECURITY.md) — Security policy and reporting
+- [CLAUDE.md](CLAUDE.md) — Project context and architecture
+- [POC.md](POC.md) — Technical specification
 
 ---
 

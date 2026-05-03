@@ -59,7 +59,59 @@ func StatusCmd() *cobra.Command {
 				fmt.Println()
 			}
 
+			// Check consistency between refs and database
+			fmt.Println(style.Label("Consistency:"))
+			_ = validateConsistency(s, idx) // Prints its own error messages
+
 			return nil
 		},
 	}
+}
+
+// validateConsistency checks that refs and database are in sync
+func validateConsistency(s *store.Store, idx *index.DB) error {
+	// Get all session refs
+	refFiles, err := filepath.Glob(filepath.Join(s.Root, "refs/sessions/*"))
+	if err != nil {
+		return err
+	}
+
+	issues := []string{}
+
+	for _, refFile := range refFiles {
+		sessionID := filepath.Base(refFile)
+
+		// Read ref
+		refHash, err := s.ReadRef("sessions/" + sessionID)
+		if err != nil {
+			issues = append(issues, fmt.Sprintf("Session %s: cannot read ref: %v", sessionID, err))
+			continue
+		}
+
+		// Read DB head
+		dbHash, err := idx.SessionHead(sessionID)
+		if err != nil {
+			issues = append(issues, fmt.Sprintf("Session %s: not in database", sessionID))
+			continue
+		}
+
+		// Compare
+		if refHash != dbHash {
+			issues = append(issues, fmt.Sprintf("Session %s: ref=%s but db=%s",
+				sessionID, refHash[:8], dbHash[:8]))
+		}
+	}
+
+	if len(issues) > 0 {
+		fmt.Printf("  %s\n", style.Warning("⚠ Consistency issues detected:"))
+		for _, issue := range issues {
+			fmt.Printf("    • %s\n", issue)
+		}
+		fmt.Println()
+		fmt.Println("  Run 'rgt reindex' to rebuild the index from refs.")
+		return fmt.Errorf("consistency check failed")
+	}
+
+	fmt.Printf("  %s\n", style.Success("✓ All session refs match database"))
+	return nil
 }
