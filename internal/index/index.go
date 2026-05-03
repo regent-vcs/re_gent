@@ -75,7 +75,10 @@ func createSchema(db *sql.DB) error {
 		origin        TEXT NOT NULL,
 		started_at    INTEGER NOT NULL,
 		last_seen_at  INTEGER NOT NULL,
-		head_step_id  TEXT
+		head_step_id  TEXT,
+		forked_from_session TEXT,
+		forked_from_step    TEXT,
+		fork_detected_at    INTEGER
 	);
 
 	CREATE TABLE IF NOT EXISTS session_transcript (
@@ -85,8 +88,44 @@ func createSchema(db *sql.DB) error {
 	);
 	`
 
-	_, err := db.Exec(schema)
-	return err
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+
+	// Migrate existing tables (add columns if missing)
+	return migrateSchema(db)
+}
+
+// migrateSchema adds new columns to existing tables
+func migrateSchema(db *sql.DB) error {
+	// Check if fork columns exist
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM pragma_table_info('sessions')
+		WHERE name='forked_from_session'
+	`).Scan(&count)
+
+	if err != nil {
+		return fmt.Errorf("check schema: %w", err)
+	}
+
+	if count == 0 {
+		// Add fork tracking columns
+		migrations := []string{
+			`ALTER TABLE sessions ADD COLUMN forked_from_session TEXT`,
+			`ALTER TABLE sessions ADD COLUMN forked_from_step TEXT`,
+			`ALTER TABLE sessions ADD COLUMN fork_detected_at INTEGER`,
+		}
+
+		for _, migration := range migrations {
+			if _, err := db.Exec(migration); err != nil {
+				return fmt.Errorf("migration failed: %s: %w", migration, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // Close closes the database connection
@@ -133,15 +172,50 @@ func (idx *DB) IndexStep(stepHash store.Hash, step *store.Step, tree *store.Tree
 		}
 	}
 
+	// Detect fork: if parent is from different session, this is a fork
+	var forkedFromSession string
+	var forkedFromStep store.Hash
+	if step.Parent != "" {
+		var parentSessionID string
+		err := tx.QueryRow(`
+			SELECT session_id FROM steps WHERE id = ?
+		`, step.Parent).Scan(&parentSessionID)
+
+		if err == nil && parentSessionID != step.SessionID {
+			// This is a fork!
+			forkedFromSession = parentSessionID
+			forkedFromStep = step.Parent
+		}
+	}
+
 	// Update session record
 	now := time.Now().UnixNano()
-	_, err = tx.Exec(`
-		INSERT INTO sessions (id, origin, started_at, last_seen_at, head_step_id)
-		VALUES (?, 'claude_code', ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			last_seen_at = ?,
-			head_step_id = ?
-	`, step.SessionID, now, now, stepHash, now, stepHash)
+	if forkedFromSession != "" {
+		// First step in a forked session
+		_, err = tx.Exec(`
+			INSERT INTO sessions (id, origin, started_at, last_seen_at, head_step_id,
+			                     forked_from_session, forked_from_step, fork_detected_at)
+			VALUES (?, 'claude_code', ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET
+				last_seen_at = ?,
+				head_step_id = ?,
+				forked_from_session = COALESCE(forked_from_session, ?),
+				forked_from_step = COALESCE(forked_from_step, ?),
+				fork_detected_at = COALESCE(fork_detected_at, ?)
+		`, step.SessionID, now, now, stepHash,
+			forkedFromSession, forkedFromStep, now,
+			now, stepHash,
+			forkedFromSession, forkedFromStep, now)
+	} else {
+		// Normal session continuation or new session
+		_, err = tx.Exec(`
+			INSERT INTO sessions (id, origin, started_at, last_seen_at, head_step_id)
+			VALUES (?, 'claude_code', ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET
+				last_seen_at = ?,
+				head_step_id = ?
+		`, step.SessionID, now, now, stepHash, now, stepHash)
+	}
 	if err != nil {
 		return fmt.Errorf("update session: %w", err)
 	}
@@ -223,7 +297,8 @@ func (idx *DB) ListSteps(sessionID string, limit int) ([]StepInfo, error) {
 // ListAllSessions returns all sessions
 func (idx *DB) ListAllSessions() ([]SessionInfo, error) {
 	rows, err := idx.db.Query(`
-		SELECT id, origin, started_at, last_seen_at, head_step_id
+		SELECT id, origin, started_at, last_seen_at, head_step_id,
+		       forked_from_session, forked_from_step, fork_detected_at
 		FROM sessions
 		ORDER BY last_seen_at DESC
 	`)
@@ -237,8 +312,11 @@ func (idx *DB) ListAllSessions() ([]SessionInfo, error) {
 		var s SessionInfo
 		var startedAt, lastSeenAt int64
 		var headStepID sql.NullString
+		var forkedFromSession, forkedFromStep sql.NullString
+		var forkDetectedAt sql.NullInt64
 
-		err := rows.Scan(&s.ID, &s.Origin, &startedAt, &lastSeenAt, &headStepID)
+		err := rows.Scan(&s.ID, &s.Origin, &startedAt, &lastSeenAt, &headStepID,
+			&forkedFromSession, &forkedFromStep, &forkDetectedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -247,6 +325,16 @@ func (idx *DB) ListAllSessions() ([]SessionInfo, error) {
 		s.LastSeenAt = time.Unix(0, lastSeenAt)
 		if headStepID.Valid {
 			s.HeadStepID = store.Hash(headStepID.String)
+		}
+		if forkedFromSession.Valid {
+			s.ForkedFromSession = forkedFromSession.String
+		}
+		if forkedFromStep.Valid {
+			s.ForkedFromStep = store.Hash(forkedFromStep.String)
+		}
+		if forkDetectedAt.Valid {
+			t := time.Unix(0, forkDetectedAt.Int64)
+			s.ForkDetectedAt = &t
 		}
 
 		sessions = append(sessions, s)
@@ -257,11 +345,14 @@ func (idx *DB) ListAllSessions() ([]SessionInfo, error) {
 
 // SessionInfo holds displayable session info
 type SessionInfo struct {
-	ID         string
-	Origin     string
-	StartedAt  time.Time
-	LastSeenAt time.Time
-	HeadStepID store.Hash
+	ID                string
+	Origin            string
+	StartedAt         time.Time
+	LastSeenAt        time.Time
+	HeadStepID        store.Hash
+	ForkedFromSession string
+	ForkedFromStep    store.Hash
+	ForkDetectedAt    *time.Time // pointer for nullable
 }
 
 // SessionLastProcessedMessage returns the last message ID and transcript hash for a session

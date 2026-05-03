@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/regent-vcs/regent/internal/ignore"
@@ -25,7 +26,12 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 		return fmt.Errorf("decode payload: %w", err)
 	}
 
-	// 2. Open store (fail silently if .regent/ doesn't exist)
+	// 2. Filter out rgt commands to avoid self-referential logs
+	if shouldSkipStep(&p) {
+		return nil
+	}
+
+	// 3. Open store (fail silently if .regent/ doesn't exist)
 	regentDir := filepath.Join(p.CWD, ".regent")
 	s, err := store.Open(regentDir)
 	if err != nil {
@@ -119,14 +125,18 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 		return logError(s, fmt.Errorf("read tree: %w", err))
 	}
 
-	// 14. Index the step
-	if err := idx.IndexStep(stepHash, stepWithoutTree, tree); err != nil {
-		return logError(s, fmt.Errorf("index step: %w", err))
-	}
-
-	// 15. CAS update session ref (with retry)
+	// 14. CAS update session ref (with retry) - SOURCE OF TRUTH
+	// Refs must be updated first to maintain consistency. If this fails, nothing is committed.
 	if err := s.UpdateRefWithRetry("sessions/"+p.SessionID, parentHash, stepHash, 8); err != nil {
 		return logError(s, fmt.Errorf("update ref: %w", err))
+	}
+
+	// 15. Index the step (best effort - derived index)
+	// If indexing fails, refs/objects are still consistent and user can run `rgt reindex`.
+	if err := idx.IndexStep(stepHash, stepWithoutTree, tree); err != nil {
+		// Log error but don't fail hook - refs/objects are source of truth
+		_ = logError(s, fmt.Errorf("index step (non-fatal): %w", err))
+		// Continue - refs are updated, that's what matters
 	}
 
 	// Success - exit silently
@@ -292,4 +302,25 @@ func computeBlameForChanges(s *store.Store, parentHash, treeHash, currentStep st
 
 	// Write updated tree with blame references
 	return s.WriteTree(tree)
+}
+
+// shouldSkipStep returns true if this tool call should not create a step.
+// Currently filters out rgt commands run via Bash tool to avoid self-referential logs.
+func shouldSkipStep(p *Payload) bool {
+	if p.ToolName != "Bash" {
+		return false
+	}
+
+	var args map[string]interface{}
+	if err := json.Unmarshal(p.ToolInput, &args); err != nil {
+		return false // Parse error - don't skip
+	}
+
+	cmd, ok := args["command"].(string)
+	if !ok {
+		return false
+	}
+
+	trimmed := strings.TrimSpace(cmd)
+	return trimmed == "rgt" || strings.HasPrefix(trimmed, "rgt ")
 }

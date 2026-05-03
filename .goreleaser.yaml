@@ -51,7 +51,26 @@ changelog:
 release:
   github:
     owner: regent-vcs
-    name: regent
+    name: re_gent
   draft: false
   prerelease: auto
   name_template: "{{.ProjectName}} v{{.Version}}"
+
+# Homebrew tap for easy installation
+brews:
+  - name: regent
+    repository:
+      owner: regent-vcs
+      name: homebrew-tap
+      token: "{{ .Env.GITHUB_TOKEN }}"
+    commit_author:
+      name: regent-bot
+      email: bot@regent-vcs.dev
+    homepage: "https://github.com/regent-vcs/re_gent"
+    description: "Git for AI agents - content-addressed version control for agent activity"
+    license: "MIT"
+    folder: Formula
+    install: |
+      bin.install "rgt"
+    test: |
+      system "#{bin}/rgt", "version"

@@ -1,0 +1,42 @@
+# Build artifacts
+/rgt
+/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Regent-specific
+.regent/
+*.regent
+
+# Test artifacts
+*.test
+*.out
+coverage.txt
+*.prof
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Go
+vendor/
+go.work
+go.work.sum
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.log
+*.pid
+*.seed
+*.pid.lock

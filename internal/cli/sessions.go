@@ -52,6 +52,17 @@ func SessionsCmd() *cobra.Command {
 				fmt.Printf("  %s     %s\n", style.Label("Origin:"), sess.Origin)
 				fmt.Printf("  %s    %s\n", style.Label("Started:"), style.Timestamp(sess.StartedAt.Format("2006-01-02 15:04:05")))
 				fmt.Printf("  %s  %s\n", style.Label("Last seen:"), style.Timestamp(sess.LastSeenAt.Format("2006-01-02 15:04:05")))
+
+				if sess.ForkedFromSession != "" {
+					fmt.Printf("  %s     Forked from session %s at step %s\n",
+						style.Label("Fork:"),
+						style.Hash(sess.ForkedFromSession),
+						style.Hash(string(sess.ForkedFromStep[:8])))
+					if sess.ForkDetectedAt != nil {
+						fmt.Printf("             %s\n", style.Timestamp(sess.ForkDetectedAt.Format("2006-01-02 15:04:05")))
+					}
+				}
+
 				if sess.HeadStepID != "" {
 					fmt.Printf("  %s       %s\n", style.Label("Head:"), style.Hash(string(sess.HeadStepID[:16])))
 				}

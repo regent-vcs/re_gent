@@ -7,8 +7,8 @@ import (
 
 // Transcript is a linked-list node in the conversation chain
 type Transcript struct {
-	Prev        Hash   `json:"prev"`          // Previous transcript hash (empty for first)
-	NewMessages []Hash `json:"new_messages"`  // Message blob hashes added at this step
+	Prev        Hash   `json:"prev"`         // Previous transcript hash (empty for first)
+	NewMessages []Hash `json:"new_messages"` // Message blob hashes added at this step
 }
 
 // WriteTranscript writes a transcript node to the object store

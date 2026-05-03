@@ -272,7 +272,7 @@ func TestCLICommands(t *testing.T) {
 		t.Fatalf("rgt init failed: %v\nOutput: %s", err, output)
 	}
 
-	if !strings.Contains(string(output), "Initialized regent repository") {
+	if !strings.Contains(string(output), "Initialization Complete") {
 		t.Errorf("Expected success message, got: %s", output)
 	}
 
