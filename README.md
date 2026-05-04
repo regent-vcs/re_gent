@@ -44,17 +44,19 @@ brew install regent
 # Or via Go
 go install github.com/regent-vcs/regent/cmd/rgt@latest
 
-# Initialize in your project
+# Initialize in your project (use either 'regent' or 'rgt')
 cd your-project
-rgt init
+regent init
 
 # Work with Claude Code normally (every tool call is tracked)
 
 # See what happened
-rgt log
+regent log
 ```
 
 That's it. Your agent activity is now auditable.
+
+> **Note:** Both `regent` and `rgt` commands are available and work identically.
 
 ---
 
@@ -199,11 +201,15 @@ brew tap regent-vcs/tap
 brew install regent
 ```
 
+This installs both `regent` and `rgt` commands (they're identical).
+
 ### Via Go Install
 
 ```bash
 go install github.com/regent-vcs/regent/cmd/rgt@latest
 ```
+
+This installs the `rgt` command.
 
 ### From Source
 
@@ -212,6 +218,7 @@ git clone https://github.com/regent-vcs/regent
 cd regent
 go build -o rgt ./cmd/rgt
 sudo mv rgt /usr/local/bin/
+# Optionally create a symlink: sudo ln -s /usr/local/bin/rgt /usr/local/bin/regent
 ```
 
 ### Binary Releases
