@@ -324,26 +324,37 @@ func installSkills(projectRoot string) error {
 	// Each skill needs its own directory with a SKILL.md file inside
 	skills := map[string]string{
 		"log": `---
-description: View Regent activity log with step history, filtering, and formatting options. Use when reviewing agent session history, finding specific changes, or understanding what happened in previous steps.
+description: View Regent activity log with full conversation, file changes, and step history. Shows what you asked, how I responded, which tools were used, and what files changed. Use when reviewing session history or understanding what happened in previous steps.
 allowed-tools: Bash(rgt log *)
-argument-hint: "[filter-flags]"
+argument-hint: "[session-id] [flags]"
 ---
 
-Display the Regent activity log showing captured steps, tool calls, and conversation context.
+Display the Regent activity log showing captured steps, full conversation (user + assistant + tools), and file changes.
 
-Run the log command with any flags:
+By default shows both conversation and file changes for the most recent session.
+
+Run the log command:
 ` + "```bash\nrgt log $ARGUMENTS\n```" + `
 
 ## Common usage
 
-Show recent steps:
+Show recent steps (conversation + files):
 ` + "```bash\nrgt log\n```" + `
 
-Filter by session:
-` + "```bash\nrgt log --session <session-id>\n```" + `
+Show only conversation:
+` + "```bash\nrgt log --conversation-only\n```" + `
 
-Change format:
-` + "```bash\nrgt log --format timeline\nrgt log --format compact\n```",
+Show only file changes:
+` + "```bash\nrgt log --files-only\n```" + `
+
+Show step lineage as graph (like git log --graph):
+` + "```bash\nrgt log --graph\n```" + `
+
+Show more history:
+` + "```bash\nrgt log --limit 50\n```" + `
+
+Show specific session:
+` + "```bash\nrgt log <session-id>\n```",
 
 		"blame": `---
 description: Show which Regent step last modified each line of a file. Use when investigating file provenance, understanding change history, or debugging.

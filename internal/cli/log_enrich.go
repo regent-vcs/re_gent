@@ -8,15 +8,28 @@ import (
 
 	"github.com/regent-vcs/regent/internal/index"
 	"github.com/regent-vcs/regent/internal/store"
+	"github.com/regent-vcs/regent/internal/treediff"
 )
 
-// enrichSteps adds files, args, results, and duration to each step
-func enrichSteps(s *store.Store, steps []index.StepInfo) ([]EnrichedStep, error) {
+// enrichSteps adds files, args, results, duration, and optionally graph rendering to each step
+func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, renderGraph bool) ([]EnrichedStep, error) {
 	if len(steps) == 0 {
 		return []EnrichedStep{}, nil
 	}
 
 	enriched := make([]EnrichedStep, len(steps))
+
+	// Render graph if requested
+	var graphPrefixes []string
+	if renderGraph {
+		var err error
+		graphPrefixes, err = RenderGraph(steps, s)
+		if err != nil {
+			// Don't fail entirely if graph rendering fails
+			// Just log and continue without graph
+			graphPrefixes = nil
+		}
+	}
 
 	for i, stepInfo := range steps {
 		// Read the full step to get cause details
@@ -63,13 +76,41 @@ func enrichSteps(s *store.Store, steps []index.StepInfo) ([]EnrichedStep, error)
 			duration = stepInfo.Timestamp.Sub(steps[i+1].Timestamp)
 		}
 
+		// Compute file diffs if requested
+		var fileDiffs []FileDiff
+		if computeFileDiffs {
+			diffs, err := treediff.CompareTreesForDiff(s, stepInfo.ParentHash, stepInfo.Hash)
+			if err == nil {
+				// Convert treediff.FileDiff to cli.FileDiff
+				fileDiffs = make([]FileDiff, len(diffs))
+				for j, d := range diffs {
+					fileDiffs[j] = FileDiff{
+						Path:      d.Path,
+						Status:    d.Status,
+						Additions: d.Additions,
+						Deletions: d.Deletions,
+						IsBinary:  d.IsBinary,
+					}
+				}
+			}
+			// Silently skip if file diff computation fails (don't fail the whole log)
+		}
+
+		// Add graph prefix if available
+		var graphPrefix string
+		if renderGraph && i < len(graphPrefixes) {
+			graphPrefix = graphPrefixes[i]
+		}
+
 		enriched[i] = EnrichedStep{
-			StepInfo: stepInfo,
-			Files:    files,
-			Args:     args,
-			Result:   result,
-			Duration: duration,
-			Messages: messages,
+			StepInfo:    stepInfo,
+			Files:       files,
+			FileDiffs:   fileDiffs,
+			Args:        args,
+			Result:      result,
+			Duration:    duration,
+			Messages:    messages,
+			GraphPrefix: graphPrefix,
 		}
 	}
 
