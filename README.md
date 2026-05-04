@@ -39,7 +39,7 @@
 ```bash
 # Install via Homebrew (macOS/Linux)
 brew tap regent-vcs/tap
-brew install --HEAD regent
+brew install regent
 
 # Or via Go
 go install github.com/regent-vcs/regent/cmd/rgt@latest
@@ -196,10 +196,8 @@ Steps form a **DAG**. Each session has its own branch. Common ancestors dedupe. 
 
 ```bash
 brew tap regent-vcs/tap
-brew install --HEAD regent  # HEAD install until first stable release
+brew install regent
 ```
-
-> **Note:** Currently requires `--HEAD` flag as we're in active development. Stable bottle releases coming soon!
 
 ### Via Go Install
 
