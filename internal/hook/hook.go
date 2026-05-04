@@ -56,13 +56,7 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 	// 5. Get parent step (if any)
 	parentHash, _ := s.ReadRef("sessions/" + p.SessionID)
 
-	// 6. Stage conversation (Phase 4)
-	transcriptHash, err := stageConversation(s, idx, p)
-	if err != nil {
-		return logError(s, fmt.Errorf("stage conversation: %w", err))
-	}
-
-	// 7. Write tool args and result as blobs (needed for pre-step hash)
+	// 6. Write tool args and result as blobs (needed for pre-step hash)
 	argsHash, err := s.WriteBlob(p.ToolInput)
 	if err != nil {
 		return logError(s, fmt.Errorf("write args blob: %w", err))
@@ -73,20 +67,19 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 		return logError(s, fmt.Errorf("write result blob: %w", err))
 	}
 
-	// 8. Compute deterministic step hash (will be the same after we add blame to tree)
+	// 7. Compute deterministic step hash (will be the same after we add blame to tree)
 	preStepHash := computePreStepHash(parentHash, treeHash, argsHash, resultHash, p)
 
-	// 9. Compute blame for changed files using pre-step hash
+	// 8. Compute blame for changed files using pre-step hash
 	treeHash, err = computeBlameForChanges(s, parentHash, treeHash, preStepHash)
 	if err != nil {
 		return logError(s, fmt.Errorf("compute blame: %w", err))
 	}
 
-	// 10. Build step object (with transcript)
+	// 9. Build step object
 	stepWithoutTree := &store.Step{
 		Parent:         parentHash,
 		Tree:           treeHash,
-		Transcript:     transcriptHash, // NEW - Phase 4
 		SessionID:      p.SessionID,
 		TimestampNanos: time.Now().UnixNano(),
 		Cause: store.Cause{
@@ -97,13 +90,13 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 		},
 	}
 
-	// 11. Write step (first time - to get step hash)
+	// 10. Write step (first time - to get step hash)
 	stepHash, err := s.WriteStep(stepWithoutTree)
 	if err != nil {
 		return logError(s, fmt.Errorf("write step: %w", err))
 	}
 
-	// 12. Update blame maps to use actual step hash
+	// 11. Update blame maps to use actual step hash
 	// This requires rewriting the step with the updated tree
 	if preStepHash != stepHash {
 		updatedTreeHash, err := updateBlameWithRealStepHash(s, treeHash, preStepHash, stepHash)
@@ -119,19 +112,19 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 		}
 	}
 
-	// 13. Read tree for indexing
+	// 12. Read tree for indexing
 	tree, err := s.ReadTree(treeHash)
 	if err != nil {
 		return logError(s, fmt.Errorf("read tree: %w", err))
 	}
 
-	// 14. CAS update session ref (with retry) - SOURCE OF TRUTH
+	// 13. CAS update session ref (with retry) - SOURCE OF TRUTH
 	// Refs must be updated first to maintain consistency. If this fails, nothing is committed.
 	if err := s.UpdateRefWithRetry("sessions/"+p.SessionID, parentHash, stepHash, 8); err != nil {
 		return logError(s, fmt.Errorf("update ref: %w", err))
 	}
 
-	// 15. Index the step (best effort - derived index)
+	// 14. Index the step (best effort - derived index)
 	// If indexing fails, refs/objects are still consistent and user can run `rgt reindex`.
 	if err := idx.IndexStep(stepHash, stepWithoutTree, tree); err != nil {
 		// Log error but don't fail hook - refs/objects are source of truth
