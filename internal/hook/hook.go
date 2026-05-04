@@ -10,15 +10,136 @@ import (
 	"strings"
 	"time"
 
+	"github.com/regent-vcs/regent/internal/ignore"
+	"github.com/regent-vcs/regent/internal/index"
+	"github.com/regent-vcs/regent/internal/snapshot"
 	"github.com/regent-vcs/regent/internal/store"
 	"lukechampine.com/blake3"
 )
 
 // Run is the main hook entry point, invoked by Claude Code after each tool use.
-// NOTE: This hook is DEPRECATED - steps are now created by the Stop hook (one step per conversation turn).
-// This is kept for backward compatibility but does nothing.
+// It reads a Payload from stdin, captures workspace state, and creates a step.
 func Run(stdin io.Reader, stdout io.Writer) error {
-	// TODO: Remove this hook entirely once we confirm Stop hook works
+	// 1. Decode payload from stdin
+	var p Payload
+	if err := json.NewDecoder(stdin).Decode(&p); err != nil {
+		return fmt.Errorf("decode payload: %w", err)
+	}
+
+	// 2. Filter out rgt commands to avoid self-referential logs
+	if shouldSkipStep(&p) {
+		return nil
+	}
+
+	// 3. Open store (fail silently if .regent/ doesn't exist)
+	regentDir := filepath.Join(p.CWD, ".regent")
+	s, err := store.Open(regentDir)
+	if err != nil {
+		// Not initialized - silently no-op (don't break the agent)
+		return nil
+	}
+
+	// 3. Open index
+	idx, err := index.Open(s)
+	if err != nil {
+		return logError(s, fmt.Errorf("open index: %w", err))
+	}
+	defer func() { _ = idx.Close() }()
+
+	// 4. Snapshot workspace (without blame yet)
+	ig := ignore.Default(p.CWD)
+	treeHash, err := snapshot.Snapshot(s, p.CWD, ig)
+	if err != nil {
+		return logError(s, fmt.Errorf("snapshot: %w", err))
+	}
+
+	// 5. Get parent step (if any)
+	parentHash, _ := s.ReadRef("sessions/" + p.SessionID)
+
+	// 6. Stage conversation (Phase 4)
+	transcriptHash, err := stageConversation(s, idx, p)
+	if err != nil {
+		return logError(s, fmt.Errorf("stage conversation: %w", err))
+	}
+
+	// 7. Write tool args and result as blobs (needed for pre-step hash)
+	argsHash, err := s.WriteBlob(p.ToolInput)
+	if err != nil {
+		return logError(s, fmt.Errorf("write args blob: %w", err))
+	}
+
+	resultHash, err := s.WriteBlob(p.ToolResponse)
+	if err != nil {
+		return logError(s, fmt.Errorf("write result blob: %w", err))
+	}
+
+	// 8. Compute deterministic step hash (will be the same after we add blame to tree)
+	preStepHash := computePreStepHash(parentHash, treeHash, argsHash, resultHash, p)
+
+	// 9. Compute blame for changed files using pre-step hash
+	treeHash, err = computeBlameForChanges(s, parentHash, treeHash, preStepHash)
+	if err != nil {
+		return logError(s, fmt.Errorf("compute blame: %w", err))
+	}
+
+	// 10. Build step object (with transcript)
+	stepWithoutTree := &store.Step{
+		Parent:         parentHash,
+		Tree:           treeHash,
+		Transcript:     transcriptHash, // NEW - Phase 4
+		SessionID:      p.SessionID,
+		TimestampNanos: time.Now().UnixNano(),
+		Cause: store.Cause{
+			ToolUseID:  p.ToolUseID,
+			ToolName:   p.ToolName,
+			ArgsBlob:   argsHash,
+			ResultBlob: resultHash,
+		},
+	}
+
+	// 11. Write step (first time - to get step hash)
+	stepHash, err := s.WriteStep(stepWithoutTree)
+	if err != nil {
+		return logError(s, fmt.Errorf("write step: %w", err))
+	}
+
+	// 12. Update blame maps to use actual step hash
+	// This requires rewriting the step with the updated tree
+	if preStepHash != stepHash {
+		updatedTreeHash, err := updateBlameWithRealStepHash(s, treeHash, preStepHash, stepHash)
+		if err == nil && updatedTreeHash != treeHash {
+			// Tree was updated - rewrite step with corrected tree
+			stepWithoutTree.Tree = updatedTreeHash
+			finalStepHash, err := s.WriteStep(stepWithoutTree)
+			if err == nil {
+				// Use the final step hash
+				stepHash = finalStepHash
+				treeHash = updatedTreeHash
+			}
+		}
+	}
+
+	// 13. Read tree for indexing
+	tree, err := s.ReadTree(treeHash)
+	if err != nil {
+		return logError(s, fmt.Errorf("read tree: %w", err))
+	}
+
+	// 14. CAS update session ref (with retry) - SOURCE OF TRUTH
+	// Refs must be updated first to maintain consistency. If this fails, nothing is committed.
+	if err := s.UpdateRefWithRetry("sessions/"+p.SessionID, parentHash, stepHash, 8); err != nil {
+		return logError(s, fmt.Errorf("update ref: %w", err))
+	}
+
+	// 15. Index the step (best effort - derived index)
+	// If indexing fails, refs/objects are still consistent and user can run `rgt reindex`.
+	if err := idx.IndexStep(stepHash, stepWithoutTree, tree); err != nil {
+		// Log error but don't fail hook - refs/objects are source of truth
+		_ = logError(s, fmt.Errorf("index step (non-fatal): %w", err))
+		// Continue - refs are updated, that's what matters
+	}
+
+	// Success - exit silently
 	return nil
 }
 
