@@ -2,6 +2,8 @@ package cli
 
 import (
 	"encoding/json"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/regent-vcs/regent/internal/index"
@@ -27,15 +29,6 @@ func enrichSteps(s *store.Store, steps []index.StepInfo) ([]EnrichedStep, error)
 			continue
 		}
 
-		// Fetch files from tree
-		files := []string{}
-		if stepInfo.TreeHash != "" {
-			tree, err := s.ReadTree(stepInfo.TreeHash)
-			if err == nil {
-				files = extractPrimaryFiles(tree, stepInfo.ToolName)
-			}
-		}
-
 		// Fetch tool args and results
 		var args, result json.RawMessage
 		if step.Cause.ArgsBlob != "" {
@@ -51,6 +44,19 @@ func enrichSteps(s *store.Store, steps []index.StepInfo) ([]EnrichedStep, error)
 			}
 		}
 
+		// Extract files from tool arguments (what the tool actually touched)
+		files := extractFilesFromToolArgs(stepInfo.ToolName, args)
+
+		// Fetch conversation transcript
+		var messages []json.RawMessage
+		if step.Transcript != "" {
+			transcriptMsgs, err := s.ReconstructTranscript(step.Transcript)
+			if err == nil {
+				messages = transcriptMsgs
+			}
+			// Silently skip if transcript unavailable (don't fail the whole log)
+		}
+
 		// Calculate duration (time since previous step)
 		var duration time.Duration
 		if i < len(steps)-1 {
@@ -63,6 +69,7 @@ func enrichSteps(s *store.Store, steps []index.StepInfo) ([]EnrichedStep, error)
 			Args:     args,
 			Result:   result,
 			Duration: duration,
+			Messages: messages,
 		}
 	}
 
@@ -71,18 +78,64 @@ func enrichSteps(s *store.Store, steps []index.StepInfo) ([]EnrichedStep, error)
 
 // extractPrimaryFiles gets the most relevant files from a tree based on tool type
 func extractPrimaryFiles(tree *store.Tree, toolName string) []string {
-	if tree == nil || len(tree.Entries) == 0 {
+	// Don't show files from tree snapshot - it's misleading
+	// The tree contains ALL files in workspace, not just what the tool touched
+	// TODO: Compute diff against parent tree to show actual changes
+	return []string{}
+}
+
+// extractFilesFromToolArgs extracts file paths from tool arguments
+// This shows what the tool actually operated on, not all files in the workspace
+func extractFilesFromToolArgs(toolName string, args json.RawMessage) []string {
+	if len(args) == 0 || string(args) == "null" {
 		return []string{}
 	}
 
-	// For now, just return files (limit to first 3 to keep output clean)
+	var argsMap map[string]interface{}
+	if err := json.Unmarshal(args, &argsMap); err != nil {
+		return []string{}
+	}
+
 	files := []string{}
-	for _, entry := range tree.Entries {
-		files = append(files, entry.Path)
-		if len(files) >= 3 {
-			break
+
+	switch toolName {
+	case "Write", "Edit", "Read":
+		// These tools have a file_path argument
+		if filePath, ok := argsMap["file_path"].(string); ok && filePath != "" {
+			// Make path relative to current directory if it's absolute
+			files = append(files, makeRelativePath(filePath))
+		}
+	case "Bash":
+		// Bash doesn't directly specify files, leave empty
+		// Could potentially parse from command, but that's fragile
+	default:
+		// Unknown tool, try file_path as fallback
+		if filePath, ok := argsMap["file_path"].(string); ok && filePath != "" {
+			files = append(files, makeRelativePath(filePath))
 		}
 	}
 
 	return files
+}
+
+// makeRelativePath converts absolute paths to relative paths from cwd
+func makeRelativePath(path string) string {
+	// If path doesn't start with /, it's already relative
+	if len(path) == 0 || path[0] != '/' {
+		return path
+	}
+
+	// Try to get cwd
+	cwd, err := os.Getwd()
+	if err != nil {
+		return path
+	}
+
+	// If path is under cwd, make it relative
+	if strings.HasPrefix(path, cwd+"/") {
+		return strings.TrimPrefix(path, cwd+"/")
+	}
+
+	// Otherwise return as-is
+	return path
 }

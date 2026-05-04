@@ -28,6 +28,7 @@ type EnrichedStep struct {
 	Args     json.RawMessage
 	Result   json.RawMessage
 	Duration time.Duration
+	Messages []json.RawMessage // Conversation transcript
 }
 
 // LogFormatter formats steps for output

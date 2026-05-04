@@ -13,7 +13,13 @@
     Version control for AI agent activity. Track what your agent did, which prompt wrote each line, and rewind when things break.
   </p>
 
-[![CI](https://github.com/regent-vcs/regent/actions/workflows/ci.yml/badge.svg)](https://github.com/regent-vcs/regent/actions/workflows/ci.yml) [![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen?logo=github)](CONTRIBUTING.md) [![Go Version](https://img.shields.io/github/go-mod/go-version/regent-vcs/regent)](go.mod) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Star on GitHub](https://img.shields.io/github/stars/regent-vcs/regent?style=for-the-badge&logo=github&color=gold)](https://github.com/regent-vcs/regent)
+[![Apache 2.0 License](https://img.shields.io/badge/License-Apache%202.0-blue?style=for-the-badge)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/regent-vcs/regent?style=for-the-badge&logo=go&logoColor=white&color=00ADD8)](go.mod)
+
+[![CI Status](https://img.shields.io/github/actions/workflow/status/regent-vcs/regent/ci.yml?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/regent-vcs/regent/actions/workflows/ci.yml)
+[![Contributions Welcome](https://img.shields.io/badge/Contributions-Welcome-10b981?style=for-the-badge&logo=github)](CONTRIBUTING.md)
+[![Claude Code Compatible](https://img.shields.io/badge/Claude%20Code-Compatible-6366f1?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/regent-vcs/regent)
 
 </div>
 
