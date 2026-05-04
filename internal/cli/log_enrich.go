@@ -17,6 +17,13 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 		return []EnrichedStep{}, nil
 	}
 
+	// Open index for reading messages
+	idx, err := index.Open(s)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = idx.Close() }()
+
 	enriched := make([]EnrichedStep, len(steps))
 
 	// Render graph if requested
@@ -60,14 +67,73 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 		// Extract files from tool arguments (what the tool actually touched)
 		files := extractFilesFromToolArgs(stepInfo.ToolName, args)
 
-		// Fetch conversation transcript
+		// Fetch conversation messages from database
 		var messages []json.RawMessage
-		if step.Transcript != "" {
+		dbMessages, err := idx.GetMessagesForStep(stepInfo.Hash)
+		if err == nil && len(dbMessages) > 0 {
+			// Group messages: collect tool_use blocks and embed them in assistant message
+			var currentContent []map[string]interface{}
+			var currentRole string
+
+			for _, msg := range dbMessages {
+				if msg.MessageType == "user" {
+					// User message - emit directly
+					envelope := map[string]interface{}{
+						"type": "user",
+						"message": map[string]interface{}{
+							"role":    "user",
+							"content": msg.ContentText,
+						},
+					}
+					msgJSON, _ := json.Marshal(envelope)
+					messages = append(messages, msgJSON)
+
+				} else if msg.MessageType == "assistant" {
+					// Assistant message - collect content
+					currentRole = "assistant"
+					if msg.ContentText != "" {
+						currentContent = append(currentContent, map[string]interface{}{
+							"type": "text",
+							"text": msg.ContentText,
+						})
+					}
+
+				} else if msg.MessageType == "tool_call" {
+					// Tool call - add to content blocks
+					if msg.ToolInput != "" {
+						inputData, _ := s.ReadBlob(store.Hash(msg.ToolInput))
+						var inputMap map[string]interface{}
+						json.Unmarshal(inputData, &inputMap)
+
+						currentContent = append(currentContent, map[string]interface{}{
+							"type":  "tool_use",
+							"id":    msg.ToolUseID,
+							"name":  msg.ToolName,
+							"input": inputMap,
+						})
+					}
+				}
+				// tool_result messages are skipped (they're system responses)
+			}
+
+			// Emit assistant message with all content blocks
+			if currentRole == "assistant" && len(currentContent) > 0 {
+				envelope := map[string]interface{}{
+					"type": "assistant",
+					"message": map[string]interface{}{
+						"role":    "assistant",
+						"content": currentContent,
+					},
+				}
+				msgJSON, _ := json.Marshal(envelope)
+				messages = append(messages, msgJSON)
+			}
+		} else if step.Transcript != "" {
+			// Fallback to old transcript chain for backward compatibility
 			transcriptMsgs, err := s.ReconstructTranscript(step.Transcript)
 			if err == nil {
 				messages = transcriptMsgs
 			}
-			// Silently skip if transcript unavailable (don't fail the whole log)
 		}
 
 		// Calculate duration (time since previous step)

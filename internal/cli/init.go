@@ -20,7 +20,7 @@ func InitCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:          "init",
-		Short:        "Initialize a new regent repository",
+		Short:        "Initialize a new re_gent repository",
 		Long:         "Creates a .regent directory in the current workspace and sets up the object store.",
 		SilenceUsage: true, // Don't show usage on logical errors
 		Annotations: map[string]string{
@@ -216,18 +216,44 @@ func installHook(projectRoot string) error {
 
 	hooks := settings["hooks"].(map[string]interface{})
 
-	// Create hook entry in correct format (array with matcher + hooks)
-	hookEntry := map[string]interface{}{
-		"matcher": "",
-		"hooks": []interface{}{
-			map[string]interface{}{
-				"type":    "command",
-				"command": "rgt hook",
+	// Configure the three hooks for message capture (one step per conversation turn)
+	hooks["UserPromptSubmit"] = []interface{}{
+		map[string]interface{}{
+			"matcher": "",
+			"hooks": []interface{}{
+				map[string]interface{}{
+					"type":    "command",
+					"command": "rgt message-hook user",
+				},
 			},
 		},
 	}
 
-	hooks["PostToolUse"] = []interface{}{hookEntry}
+	hooks["Stop"] = []interface{}{
+		map[string]interface{}{
+			"matcher": "",
+			"hooks": []interface{}{
+				map[string]interface{}{
+					"type":    "command",
+					"command": "rgt message-hook assistant",
+				},
+			},
+		},
+	}
+
+	hooks["PostToolBatch"] = []interface{}{
+		map[string]interface{}{
+			"matcher": "",
+			"hooks": []interface{}{
+				map[string]interface{}{
+					"type":    "command",
+					"command": "rgt tool-batch-hook",
+				},
+			},
+		},
+	}
+
+	// PostToolUse hook is no longer needed (steps created by Stop hook now)
 
 	// Write back with pretty formatting
 	output, err := json.MarshalIndent(settings, "", "  ")
@@ -268,7 +294,7 @@ func printManualInstructions() {
 func createRegentGitignore(projectRoot string) error {
 	gitignorePath := filepath.Join(projectRoot, ".regent", ".gitignore")
 
-	content := `# Regent temporary files
+	content := `# re_gent temporary files
 *.backup
 rewound-*.jsonl
 log/
@@ -324,12 +350,12 @@ func installSkills(projectRoot string) error {
 	// Each skill needs its own directory with a SKILL.md file inside
 	skills := map[string]string{
 		"log": `---
-description: View Regent activity log with full conversation, file changes, and step history. Shows what you asked, how I responded, which tools were used, and what files changed. Use when reviewing session history or understanding what happened in previous steps.
+description: View re_gent activity log with full conversation, file changes, and step history. Shows what you asked, how I responded, which tools were used, and what files changed. Use when reviewing session history or understanding what happened in previous steps.
 allowed-tools: Bash(rgt log *)
 argument-hint: "[session-id] [flags]"
 ---
 
-Display the Regent activity log showing captured steps, full conversation (user + assistant + tools), and file changes.
+Display the re_gent activity log showing captured steps, full conversation (user + assistant + tools), and file changes.
 
 By default shows both conversation and file changes for the most recent session.
 
@@ -357,7 +383,7 @@ Show specific session:
 ` + "```bash\nrgt log <session-id>\n```",
 
 		"blame": `---
-description: Show which Regent step last modified each line of a file. Use when investigating file provenance, understanding change history, or debugging.
+description: Show which re_gent step last modified each line of a file. Use when investigating file provenance, understanding change history, or debugging.
 allowed-tools: Bash(rgt blame *)
 argument-hint: "<file> [line]"
 ---
@@ -376,7 +402,7 @@ Blame specific line:
 ` + "```bash\nrgt blame src/main.go:42\n```",
 
 		"show": `---
-description: Show detailed context for a Regent step including tool arguments, result, and conversation. Use when investigating what happened in a specific step.
+description: Show detailed context for a re_gent step including tool arguments, result, and conversation. Use when investigating what happened in a specific step.
 allowed-tools: Bash(rgt show *)
 argument-hint: "<step-hash>"
 ---
@@ -393,7 +419,7 @@ Show step details:
 The step hash can be shortened (first 7+ characters).`,
 
 		"rewind": `---
-description: Rewind workspace and conversation to a previous Regent step. Non-destructive with automatic backup. Use when recovering from mistakes or exploring alternative paths.
+description: Rewind workspace and conversation to a previous re_gent step. Non-destructive with automatic backup. Use when recovering from mistakes or exploring alternative paths.
 allowed-tools: Bash(rgt rewind *)
 argument-hint: "<step-hash>"
 disable-model-invocation: true

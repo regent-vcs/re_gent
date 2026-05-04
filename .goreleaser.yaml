@@ -4,6 +4,10 @@ before:
   hooks:
     - go mod tidy
     - go test ./...
+    - mkdir -p completions
+    - sh -c "go run ./cmd/rgt completion bash > completions/rgt.bash"
+    - sh -c "go run ./cmd/rgt completion zsh > completions/_rgt"
+    - sh -c "go run ./cmd/rgt completion fish > completions/rgt.fish"
 
 builds:
   - id: rgt
@@ -33,6 +37,8 @@ archives:
     format_overrides:
       - goos: windows
         format: zip
+    files:
+      - completions/*
 
 checksum:
   name_template: 'checksums.txt'
@@ -70,5 +76,9 @@ brews:
     license: "Apache-2.0"
     install: |
       bin.install "rgt"
+      # Generate shell completions
+      bash_completion.install "completions/rgt.bash" => "rgt"
+      zsh_completion.install "completions/_rgt" => "_rgt"
+      fish_completion.install "completions/rgt.fish" => "rgt.fish"
     test: |
       system "#{bin}/rgt", "version"

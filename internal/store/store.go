@@ -57,7 +57,7 @@ func Init(workspaceRoot string) (*Store, error) {
 
 	// Create empty config file
 	configPath := filepath.Join(regentDir, "config.toml")
-	if err := os.WriteFile(configPath, []byte("# Regent configuration\n"), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte("# re_gent configuration\n"), 0o644); err != nil {
 		return nil, fmt.Errorf("create config: %w", err)
 	}
 

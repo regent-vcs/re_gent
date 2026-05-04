@@ -70,22 +70,43 @@ func (f *DefaultFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 		style.Hash(sessionID),
 		style.DimText(fmt.Sprintf("(%d steps, %s elapsed)", len(steps), formatDuration(totalElapsed))))
 
-	for i, step := range steps {
-		// Show graph prefix if present
-		if step.GraphPrefix != "" {
-			fmt.Fprint(w, step.GraphPrefix)
+	// When showing conversation, reverse order (oldest first, like chat)
+	// Also force graph rendering for conversation mode
+	displayOrder := steps
+	if showConversation {
+		displayOrder = make([]EnrichedStep, len(steps))
+		for i := range steps {
+			displayOrder[i] = steps[len(steps)-1-i]
 		}
+	}
 
-		// Show conversation if enabled and exists
+	for i, step := range displayOrder {
+		// In conversation mode, pass step hash to conversation formatter
 		if showConversation && len(step.Messages) > 0 {
+			// Show graph prefix
+			graphPrefix := step.GraphPrefix
+			if graphPrefix == "" {
+				graphPrefix = style.DimText("* ")
+			}
+
 			conv, _ := conversation.ExtractConversation(step.Messages)
-			formatted := conversation.FormatConversation(conv, "")
+			timestamp := step.StepInfo.Timestamp.Format("15:04:05")
+			formatted := conversation.FormatConversationWithHash(conv, graphPrefix, style.Hash(string(step.StepInfo.Hash[:8])), timestamp)
 			if formatted != "" {
 				fmt.Fprint(w, formatted)
+				fmt.Fprintln(w) // Blank line after conversation
 			}
+			continue
 		}
 
-		// TOOL: The action that was executed
+		// Non-conversation mode: show traditional format
+		// Show graph prefix
+		graphPrefix := step.GraphPrefix
+		if graphPrefix != "" {
+			fmt.Fprint(w, graphPrefix)
+		}
+
+		// Show step hash and timestamp
 		fmt.Fprintf(w, "%s %s  %s",
 			style.Label(step.StepInfo.ToolName),
 			style.Hash(string(step.StepInfo.Hash[:8])),
@@ -96,23 +117,44 @@ func (f *DefaultFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 		}
 		fmt.Fprintln(w)
 
-		// Show what the tool did (command, file, etc.)
-		if len(step.Args) > 0 && string(step.Args) != "null" {
-			var args map[string]interface{}
-			if json.Unmarshal(step.Args, &args) == nil {
-				if cmd, ok := args["command"].(string); ok {
-					fmt.Fprintf(w, "  %s\n", truncate(cmd, 90))
-				} else if filePath, ok := args["file_path"].(string); ok {
-					fmt.Fprintf(w, "  %s\n", filePath)
+		// Show what the tool did (command, file, etc.) - only if NOT in conversation mode
+		if !showConversation {
+			// Show what the tool did (command, file, etc.)
+			if len(step.Args) > 0 && string(step.Args) != "null" {
+				var args map[string]interface{}
+				if json.Unmarshal(step.Args, &args) == nil {
+					if cmd, ok := args["command"].(string); ok {
+						fmt.Fprintf(w, "  %s\n", truncate(cmd, 90))
+					} else if filePath, ok := args["file_path"].(string); ok {
+						fmt.Fprintf(w, "  %s\n", filePath)
+					}
 				}
 			}
 		}
 
 		// OUTPUT: Show file changes if available
-		if showFiles && len(step.FileDiffs) > 0 {
-			fmt.Fprintf(w, "%s\n", style.DimText("  ↓"))
+		// Filter to only files touched by this tool (not entire tree diff)
+		if showFiles && len(step.FileDiffs) > 0 && len(step.Files) > 0 {
+			// Create map of files this tool touched
+			touchedFiles := make(map[string]bool)
+			for _, f := range step.Files {
+				touchedFiles[f] = true
+			}
+
+			// Filter FileDiffs to only touched files
+			var relevantDiffs []FileDiff
 			for _, fd := range step.FileDiffs {
-				fmt.Fprintf(w, "  %s  %s\n", fd.Path, formatFileStat(fd))
+				if touchedFiles[fd.Path] {
+					relevantDiffs = append(relevantDiffs, fd)
+				}
+			}
+
+			// Only show section if there are relevant diffs
+			if len(relevantDiffs) > 0 {
+				fmt.Fprintln(w)
+				for _, fd := range relevantDiffs {
+					fmt.Fprintf(w, "  %s  %s\n", fd.Path, formatFileStat(fd))
+				}
 			}
 		}
 

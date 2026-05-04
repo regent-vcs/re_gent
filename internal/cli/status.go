@@ -15,7 +15,7 @@ import (
 func StatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Show the current regent repository status",
+		Short: "Show the current re_gent repository status",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, err := os.Getwd()
 			if err != nil {

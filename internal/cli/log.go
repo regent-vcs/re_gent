@@ -69,18 +69,16 @@ func LogCmd() *cobra.Command {
 				return fmt.Errorf("--conversation-only and --files-only are mutually exclusive")
 			}
 
-			// Set defaults: show both conversation and files
-			if !cmd.Flags().Changed("conversation") && !cmd.Flags().Changed("files") {
+			// Default: show conversation (unless explicitly disabled or files-only set)
+			if !cmd.Flags().Changed("conversation") && !filesOnly {
 				conversation = true
-				files = true
 			}
 
 			// Apply filters
 			if conversationOnly {
 				conversation = true
 				files = false
-			}
-			if filesOnly {
+			} else if filesOnly {
 				conversation = false
 				files = true
 			}

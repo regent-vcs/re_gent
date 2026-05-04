@@ -86,6 +86,31 @@ func createSchema(db *sql.DB) error {
 		last_message_id      TEXT NOT NULL,
 		last_transcript_hash TEXT NOT NULL
 	);
+
+	CREATE TABLE IF NOT EXISTS messages (
+		id              TEXT PRIMARY KEY,
+		session_id      TEXT NOT NULL,
+		step_id         TEXT,
+		seq_num         INTEGER NOT NULL,
+		timestamp       INTEGER NOT NULL,
+		message_type    TEXT NOT NULL,
+		content_text    TEXT,
+		tool_name       TEXT,
+		tool_use_id     TEXT,
+		tool_input      TEXT,
+		tool_output     TEXT,
+		FOREIGN KEY (step_id) REFERENCES steps(id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_messages_session_seq ON messages(session_id, seq_num);
+	CREATE INDEX IF NOT EXISTS idx_messages_step ON messages(step_id);
+	CREATE INDEX IF NOT EXISTS idx_messages_tool_use ON messages(tool_use_id);
+
+	CREATE TABLE IF NOT EXISTS jsonl_snapshots (
+		session_id      TEXT NOT NULL,
+		captured_at     INTEGER NOT NULL,
+		jsonl_blob      TEXT NOT NULL,
+		PRIMARY KEY (session_id, captured_at)
+	);
 	`
 
 	if _, err := db.Exec(schema); err != nil {

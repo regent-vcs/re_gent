@@ -1,4 +1,4 @@
-# Regent
+# re_gent
 
 > Git for AI agents. A content-addressed, DAG-based version control system that captures *what* an agent did, *why* (which prompt), and lets you blame, log, and rewind across sessions.
 
@@ -21,7 +21,7 @@ Today, AI coding agents have **no version control of their own**. Devs have buil
 
 We gave agents write access to our codebases. We did not give ourselves git for it.
 
-Regent provides three primitives that should already exist for every agent-driven workflow:
+re_gent provides three primitives that should already exist for every agent-driven workflow:
 
 - **blame** — which prompt produced this line of code?
 - **log** — what did this session actually do, in causal order?
@@ -33,7 +33,7 @@ These three turn the agent's activity into something inspectable, reversible, an
 
 ## Tool & CLI
 
-- **Project name**: Regent
+- **Project name**: re_gent
 - **CLI binary**: `rgt` (3 chars, ergonomic)
 - **Storage directory**: `.regent/` at the project root (analogous to `.git/`)
 - **License (planned)**: MIT — open source from commit zero
@@ -51,7 +51,7 @@ Four primitive object types, three immutable and content-addressed:
 
 Steps form a **DAG** through `parent` pointers. Each session has its own ref (its own branch tip). The DAG itself is shared across sessions: common ancestors dedupe, divergent work lives on parallel branches, sub-agents (Task tool) get their own chains with merge points.
 
-The workspace on disk is **shared across sessions** by default. Regent records what each session *thought was happening*; conflict detection happens at write time when two sessions touch the same file. Worktrees-per-session exist as an opt-in escape hatch when true physical isolation is needed.
+The workspace on disk is **shared across sessions** by default. re_gent records what each session *thought was happening*; conflict detection happens at write time when two sessions touch the same file. Worktrees-per-session exist as an opt-in escape hatch when true physical isolation is needed.
 
 ---
 
@@ -85,7 +85,7 @@ The object store on disk is canonical and rebuildable. SQLite is purely a derive
 
 The DAG has multiple tips, one per active session. Refs at `refs/sessions/<session_id>` are independent. Steps from different sessions live in the same object store; common ancestors dedupe naturally.
 
-The disk is **not** isolated per session by default — both Claude Code instances write to `~/myproject/` and Regent's hooks capture each session's view independently. This matches how people actually run concurrent agents today and avoids forcing a workflow change. Conflict detection happens when two sessions touch the same file; resolution is user-driven.
+The disk is **not** isolated per session by default — both Claude Code instances write to `~/myproject/` and re_gent's hooks capture each session's view independently. This matches how people actually run concurrent agents today and avoids forcing a workflow change. Conflict detection happens when two sessions touch the same file; resolution is user-driven.
 
 Worktrees-per-session exist as an opt-in (`rgt session new --worktree`) for cases that need true physical isolation: long autonomous runs, sessions with different env/dependency setups, or genuinely contested files.
 
@@ -102,11 +102,11 @@ Chosen: **annotated**. Storage cost is bounded (per-line hash arrays compress we
 
 We store the conversation alongside the file state. Each Step references a `Transcript` blob: `{ prev: hash, new_messages: [hash...] }`. To reconstruct the conversation at any step, walk the chain backward, collect `new_messages`, reverse, dereference. Storage cost per step = the messages added at that step (typically 1–3 in Claude Code).
 
-This makes Regent robust to Claude Code's `/compact` and `/clear`: even if the live JSONL is rewritten or wiped, our content-addressed message blobs remain intact and the chain still reconstructs.
+This makes re_gent robust to Claude Code's `/compact` and `/clear`: even if the live JSONL is rewritten or wiped, our content-addressed message blobs remain intact and the chain still reconstructs.
 
 ### Hook-driven capture (Claude Code first)
 
-Regent is invoked via Claude Code's `PostToolUse` hook. The hook is a thin shim: extract payload, snapshot workspace, stage conversation slice, write step, CAS the session ref forward. All real logic lives in the `internal/` packages.
+re_gent is invoked via Claude Code's `PostToolUse` hook. The hook is a thin shim: extract payload, snapshot workspace, stage conversation slice, write step, CAS the session ref forward. All real logic lives in the `internal/` packages.
 
 Other agent tools (Cursor, Cline, Continue, Aider, Claude Agent SDK) will eventually get their own adapter packages producing the same internal `Payload` shape. Per-tool adapter is small; shared engine is everything else.
 
@@ -147,7 +147,7 @@ Other agent tools (Cursor, Cline, Continue, Aider, Claude Agent SDK) will eventu
 
 ## Reference projects
 
-These are projects worth reading the source of when designing or implementing parts of Regent. **Read, don't fork.**
+These are projects worth reading the source of when designing or implementing parts of re_gent. **Read, don't fork.**
 
 - **Jujutsu (`jj`)** — <https://github.com/jj-vcs/jj>. From-scratch git-compatible VCS in Rust. Excellent reference for the *shape* of building a from-scratch object model. Their handling of operation logs (a parallel concept to our Step lineage) is particularly relevant.
 - **isomorphic-git** — <https://github.com/isomorphic-git/isomorphic-git>. Pure TypeScript reimplementation of git's data model. The codebase is small enough to read in a weekend and demystifies how little code the core actually needs.
@@ -193,7 +193,7 @@ These are real design tensions we have not yet resolved. Flag them when relevant
 
 2. **Sub-agent (Task tool) lineage.** When a parent agent spawns a sub-agent, the sub-agent's tool calls are part of the same overall session but should arguably form their own sub-chain that "merges" back into the parent at the Task return. Schema supports this via `secondary_parent`; hook detection logic is unspecified.
 
-3. **Conversation rewind into the live agent.** v0 rewinds the *files* and the *Regent record*, but the live Claude Code agent's transcript continues forward. User has to start a fresh session to get a clean state. v1 should explore writing rewound transcripts back to the JSONL + a programmatic session reset, if Claude Code exposes one.
+3. **Conversation rewind into the live agent.** v0 rewinds the *files* and the *re_gent record*, but the live Claude Code agent's transcript continues forward. User has to start a fresh session to get a clean state. v1 should explore writing rewound transcripts back to the JSONL + a programmatic session reset, if Claude Code exposes one.
 
 4. **Performance on monorepos.** Snapshotting every step works for small/medium repos but will hurt on 50k-file monorepos. Optimization candidates: incremental snapshots (track inode mtimes via the index), bloom filters for "did this directory change," or watchman-style integration. v0 ignores this; v1 must address.
 

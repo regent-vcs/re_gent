@@ -1,6 +1,6 @@
-# Contributing to Regent
+# Contributing to re_gent
 
-Thanks for your interest in contributing to Regent! This document outlines the development process, testing requirements, and PR guidelines.
+Thanks for your interest in contributing to re_gent! This document outlines the development process, testing requirements, and PR guidelines.
 
 ---
 
@@ -215,7 +215,7 @@ How did you test this? Include commands run, edge cases checked.
 
 ## Roadmap & Phases
 
-Regent is being built in phases per [POC.md](POC.md):
+re_gent is being built in phases per [POC.md](POC.md):
 
 - **Phase 1**: Object store skeleton ✅ **(Complete)**
 - **Phase 2**: Hook integration ✅ **(Complete)**
@@ -263,4 +263,4 @@ By contributing, you agree that your contributions will be licensed under the Ap
 
 **Thanks for contributing!** 🚀
 
-Every PR, issue, and discussion helps make Regent better for developers wrestling with agent-generated code.
+Every PR, issue, and discussion helps make re_gent better for developers wrestling with agent-generated code.

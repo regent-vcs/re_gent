@@ -8,7 +8,7 @@ This document is serious about the brand, but not about itself. If you're touchi
 
 ## Mission Statement
 
-Regent gives developers **git-level control** over AI agent activity. We're building the missing version control layer that should have existed the moment agents started writing code.
+re_gent gives developers **git-level control** over AI agent activity. We're building the missing version control layer that should have existed the moment agents started writing code.
 
 Our vibe: **professional tools with personality**. We're not enterprise-boring, but we're not startup-cutesy either. Think: `git` meets modern CLI aesthetics (like `gh`, `ripgrep`, `exa`).
 
@@ -41,7 +41,7 @@ The brand name is **re_gent** — always lowercase with an underscore.
 - Re_gent
 - re-gent
 
-**In CLI output:** The brand name appears in purple (Regent Purple #9B59D0 / ANSI 141) for "brand moments" — occasions where we're identifying ourselves:
+**In CLI output:** The brand name appears in purple (re_gent Purple #9B59D0 / ANSI 141) for "brand moments" — occasions where we're identifying ourselves:
 - `rgt version` output
 - `rgt init` header
 - Introduction text in help/wizards
@@ -74,7 +74,7 @@ The brand name is **re_gent** — always lowercase with an underscore.
 **Primary palette** (CLI + terminal output):
 
 ```
-Regent Purple:  #9B59D0  ANSI 141  (primary brand color, used for brand moments)
+re_gent Purple:  #9B59D0  ANSI 141  (primary brand color, used for brand moments)
 Royal Blue:     #5B7FFF  ANSI 69   (labels, structure)
 Emerald:        #10B981  ANSI 42   (success states)
 Amber:          #F59E0B  ANSI 214  (warnings)
@@ -87,7 +87,7 @@ Slate:          #64748B  ANSI 103  (de-emphasized text, metadata)
 We use ANSI 256-color codes instead of RGB for better terminal compatibility:
 
 ```go
-Purple256 = "\033[38;5;141m"  // Regent Purple
+Purple256 = "\033[38;5;141m"  // re_gent Purple
 Blue256   = "\033[38;5;69m"   // Royal Blue
 Green256  = "\033[38;5;42m"   // Emerald
 Amber256  = "\033[38;5;214m"  // Amber
@@ -109,7 +109,7 @@ Gray256   = "\033[38;5;103m"  // Slate
 **Color usage hierarchy**:
 1. **No color by default for data** — Hashes, timestamps, file paths should work in pipes
 2. **Color for UI chrome** — Headings, labels, prompts get color
-3. **Semantic color** — Green = success, red = error, amber = warning, purple = Regent-specific highlights
+3. **Semantic color** — Green = success, red = error, amber = warning, purple = re_gent-specific highlights
 4. **Respect `NO_COLOR`** — If `NO_COLOR` env var is set, strip all ANSI codes
 
 **Typography**:
@@ -333,7 +333,7 @@ Error: Session does not exist. Please check your input and try again.
 | Rewind | Reset, undo, rollback |
 
 **Capitalization**:
-- Regent (proper noun, always capitalized)
+- re_gent (brand name, always lowercase with underscore)
 - `rgt` (command, always lowercase monospace)
 - Step, Tree, Blob (capitalized when referring to the data structure, lowercase when generic)
 

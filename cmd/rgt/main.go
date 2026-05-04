@@ -11,8 +11,8 @@ import (
 func main() {
 	rootCmd := &cobra.Command{
 		Use:   "rgt",
-		Short: "Regent - version control for AI agent activity",
-		Long:  "Regent is a content-addressed version control system for AI agent activity.\nIt captures what an agent did, why, and lets you blame, log, and rewind across sessions.",
+		Short: "re_gent - version control for AI agent activity",
+		Long:  "re_gent is a content-addressed version control system for AI agent activity.\nIt captures what an agent did, why, and lets you blame, log, and rewind across sessions.",
 	}
 
 	// Add commands in desired help order (init first, then common commands)
@@ -23,6 +23,8 @@ func main() {
 	rootCmd.AddCommand(cli.ShowCmd())
 	rootCmd.AddCommand(cli.SessionsCmd())
 	rootCmd.AddCommand(cli.HookCmd())
+	rootCmd.AddCommand(MessageHookCmd())
+	rootCmd.AddCommand(ToolBatchHookCmd())
 	rootCmd.AddCommand(cli.CatCmd())
 	rootCmd.AddCommand(cli.VersionCmd())
 

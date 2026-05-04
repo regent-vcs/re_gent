@@ -1,6 +1,6 @@
-# Regent — POC Implementation Plan
+# re_gent — POC Implementation Plan
 
-> **Regent** is a content-addressed version control system for AI agent activity. It captures what an agent did, why, and lets you blame, log, and rewind across sessions.
+> **re_gent** is a content-addressed version control system for AI agent activity. It captures what an agent did, why, and lets you blame, log, and rewind across sessions.
 >
 > **CLI**: `rgt`
 > **Language**: Go (1.22+)
@@ -14,7 +14,7 @@ Prove three things end-to-end on real Claude Code activity:
 
 1. **Storage + blame algorithm.** A content-addressed object store (blobs, trees, steps, blame maps) that handles realistic agent workloads with bounded storage growth and sub-10ms blame queries.
 2. **Concurrent sessions on a shared workspace.** Two or more Claude Code sessions writing to the same directory produce correct, non-conflicting per-session DAG branches without losing data or corrupting refs.
-3. **Conversation state staging.** The originating prompt and assistant turn for each step are lifted from Claude Code's JSONL into Regent's own object store, so `/compact` and `/clear` can't destroy historical lineage.
+3. **Conversation state staging.** The originating prompt and assistant turn for each step are lifted from Claude Code's JSONL into re_gent's own object store, so `/compact` and `/clear` can't destroy historical lineage.
 
 Out of scope for v0: branching/checkout, worktrees, conflict resolution UI, multi-tool adapters (Cursor, Cline, etc.), remote sync, performance tuning beyond "doesn't fall over."
 
@@ -704,7 +704,7 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 ```
 
 **Key choices**:
-- **Fail silently if `.regent/` doesn't exist.** The hook fires for every tool call in every project; if Regent isn't initialized, do nothing. Never break the user's agent.
+- **Fail silently if `.regent/` doesn't exist.** The hook fires for every tool call in every project; if re_gent isn't initialized, do nothing. Never break the user's agent.
 - **Don't emit anything to stdout** unless required by Claude Code's hook protocol. Log errors to a file under `.regent/log/` for debugging.
 - **Two-pass step write** for blame: the blame map references the step that wrote it, but the step's hash depends on the tree (which contains blame map hashes). Either (a) compute step ID without blame, write everything, or (b) use `(parent + cause + workspace_tree_no_blame)` as the step's stable ID and compute blame referencing that ID. The POC will use (a) — simpler.
 

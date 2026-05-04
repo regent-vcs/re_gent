@@ -1,11 +1,11 @@
 ---
 name: log
-description: Show Regent step history for the current session
+description: Show re_gent step history for the current session
 ---
 
 # Log Skill
 
-Shows the Regent version control log for the current Claude Code session, displaying the full history of tool calls, file changes, and conversation.
+Shows the re_gent version control log for the current Claude Code session, displaying the full history of tool calls, file changes, and conversation.
 
 ## Usage
 

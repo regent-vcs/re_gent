@@ -36,7 +36,7 @@ Closes #
 **Test environment**:
 - OS: <!-- macOS/Linux/Windows -->
 - Go version: <!-- run: go version -->
-- Regent version: <!-- run: ./rgt version -->
+- re_gent version: <!-- run: ./rgt version -->
 
 **Steps tested**:
 1. 

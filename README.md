@@ -2,7 +2,7 @@
   <a href="https://github.com/regent-vcs/regent">
     <img
       src="assets/regent-logo-dark.png"
-      alt="Regent"
+      alt="re_gent"
       width="100%"
     />
   </a>
@@ -28,7 +28,7 @@
 ## Demo
 
 <div align="center">
-  <img src="assets/demo.gif" alt="Regent tracking Claude Code activity" width="100%"/>
+  <img src="assets/demo.gif" alt="re_gent tracking Claude Code activity" width="100%"/>
   <p><em>Every tool call is automatically captured. No manual commits needed.</em></p>
 </div>
 
@@ -46,17 +46,15 @@ go install github.com/regent-vcs/regent/cmd/rgt@latest
 
 # Initialize in your project (use either 'regent' or 'rgt')
 cd your-project
-regent init
+rgt init
 
 # Work with Claude Code normally (every tool call is tracked)
 
 # See what happened
-regent log
+rgt log
 ```
 
 That's it. Your agent activity is now auditable.
-
-> **Note:** Both `regent` and `rgt` commands are available and work identically.
 
 ---
 
@@ -153,13 +151,13 @@ You know this pain:
 - **`rgt blame`** — which prompt wrote this line?
 - **`rgt rewind`** — restore to any previous step (coming soon)
 
-We gave agents write access to our codebases. We did not give ourselves git for it. Regent fixes that.
+We gave agents write access to our codebases. We did not give ourselves git for it. re_gent fixes that.
 
 ---
 
 ## How It Works
 
-Regent stores agent activity in `.regent/` (like `.git/`):
+re_gent stores agent activity in `.regent/` (like `.git/`):
 
 ```
 .regent/
@@ -201,7 +199,7 @@ brew tap regent-vcs/tap
 brew install regent
 ```
 
-This installs both `regent` and `rgt` commands (they're identical).
+This installs both `regent` and `rgt` commands (they're identical) and automatically sets up shell completions for bash, zsh, and fish.
 
 ### Via Go Install
 
@@ -210,6 +208,18 @@ go install github.com/regent-vcs/regent/cmd/rgt@latest
 ```
 
 This installs the `rgt` command.
+
+**Shell Completion (manual setup):**
+```bash
+# Bash
+rgt completion bash > /usr/local/etc/bash_completion.d/rgt
+
+# Zsh
+rgt completion zsh > "${fpath[1]}/_rgt"
+
+# Fish
+rgt completion fish > ~/.config/fish/completions/rgt.fish
+```
 
 ### From Source
 
@@ -220,6 +230,8 @@ go build -o rgt ./cmd/rgt
 sudo mv rgt /usr/local/bin/
 # Optionally create a symlink: sudo ln -s /usr/local/bin/rgt /usr/local/bin/regent
 ```
+
+For shell completion, follow the "Via Go Install" instructions above.
 
 ### Binary Releases
 
@@ -262,9 +274,9 @@ Download pre-built binaries from [GitHub Releases](https://github.com/regent-vcs
 
 ---
 
-## Regent vs Git
+## re_gent vs Git
 
-| | Git | Regent |
+| | Git | re_gent |
 |---|---|---|
 | **Tracks code** | ✅ | ✅ |
 | **Tracks agent activity** | ❌ | ✅ |
@@ -273,7 +285,7 @@ Download pre-built binaries from [GitHub Releases](https://github.com/regent-vcs
 | **Concurrent sessions** | ⚠️ conflicts | ✅ separate branches |
 | **Purpose** | Developer VCS | Agent audit trail |
 
-**Regent complements git, doesn't replace it.** Use both.
+**re_gent complements git, doesn't replace it.** Use both.
 
 ---
 
@@ -305,7 +317,7 @@ Check [GitHub Projects](https://github.com/regent-vcs/regent/projects) for curre
 
 ## Contributing
 
-Contributions are welcome! Regent is built in public and we actively review PRs.
+Contributions are welcome! re_gent is built in public and we actively review PRs.
 
 **Quick Start:**
 - Read [QUICK_START.md](.github/QUICK_START.md) for a 5-minute setup guide

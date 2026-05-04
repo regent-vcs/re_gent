@@ -26,7 +26,8 @@ type Step struct {
 	Tree            Hash     `json:"tree"`
 	Transcript      Hash     `json:"transcript,omitempty"`
 	Config          Hash     `json:"config,omitempty"` // system prompt + tools + memory hash
-	Cause           Cause    `json:"cause"`
+	Cause           Cause    `json:"cause,omitempty"`  // DEPRECATED: use Causes instead (kept for backward compat)
+	Causes          []Cause  `json:"causes,omitempty"` // Multiple tools in one conversation turn
 	SessionID       string   `json:"session_id"`
 	AgentID         string   `json:"agent_id,omitempty"`
 	TimestampNanos  int64    `json:"ts"`

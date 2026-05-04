@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/regent-vcs/regent/internal/style"
 )
 
 // ClaudeCodeMessage represents the envelope format from Claude Code JSONL
@@ -137,42 +139,76 @@ func parseContent(role string, content json.RawMessage) (ConversationMessage, er
 // FormatConversation formats full conversation including user, assistant, and tool calls
 // Returns empty string if no messages found
 func FormatConversation(messages []ConversationMessage, indent string) string {
+	return formatConversationInternal(messages, indent, "", "", "")
+}
+
+// FormatConversationWithHash formats conversation with step hash and graph prefix on each line
+func FormatConversationWithHash(messages []ConversationMessage, graphPrefix, stepHash, timestamp string) string {
+	return formatConversationInternal(messages, "", graphPrefix, stepHash, timestamp)
+}
+
+func formatConversationInternal(messages []ConversationMessage, indent, graphPrefix, stepHash, timestamp string) string {
 	if len(messages) == 0 {
 		return ""
 	}
 
 	var output strings.Builder
 
+	// Show hash at the top with timestamp (both muted)
+	if stepHash != "" {
+		subtitle := style.DimText(stepHash)
+		if timestamp != "" {
+			subtitle += style.DimText(" • " + timestamp)
+		}
+		output.WriteString(graphPrefix + subtitle + "\n")
+	}
+
 	for i, msg := range messages {
 		if msg.Role == "user" {
-			// User prompt
+			// User prompt - base level indent
 			for _, text := range msg.Text {
 				trimmed := strings.TrimSpace(text)
 				if trimmed != "" {
-					output.WriteString(indent + "You: " + formatText(text, indent+"     ", 90) + "\n")
+					if stepHash != "" {
+						output.WriteString("  Human: " + formatText(text, "         ", 90) + "\n")
+					} else {
+						output.WriteString(indent + "Human: " + formatText(text, indent+"       ", 90) + "\n")
+					}
 				}
 			}
 			// Add flow indicator if there's a next message
 			if i < len(messages)-1 {
-				output.WriteString(indent + "  ↓\n")
+				if stepHash != "" {
+					output.WriteString("    ↓\n")
+				} else {
+					output.WriteString(indent + "  ↓\n")
+				}
 			}
 		} else if msg.Role == "assistant" {
-			// Assistant response
+			// Assistant response - indented one more level
 			for _, text := range msg.Text {
 				trimmed := strings.TrimSpace(text)
 				if trimmed != "" {
-					output.WriteString(indent + "Assistant: " + formatText(text, indent+"           ", 90) + "\n")
+					if stepHash != "" {
+						output.WriteString("    Agent: " + formatText(text, "           ", 90) + "\n")
+					} else {
+						output.WriteString(indent + "Agent: " + formatText(text, indent+"       ", 90) + "\n")
+					}
 				}
 			}
 
-			// Show tool calls
+			// Show tool calls - indented even further
 			if len(msg.ToolUse) > 0 {
 				for j, tool := range msg.ToolUse {
 					prefix := "├─"
 					if j == len(msg.ToolUse)-1 {
 						prefix = "└─"
 					}
-					output.WriteString(indent + "  " + prefix + " " + formatToolUse(tool, indent+"     ") + "\n")
+					if stepHash != "" {
+						output.WriteString("      " + prefix + " " + formatToolUse(tool, "         ") + "\n")
+					} else {
+						output.WriteString(indent + "  " + prefix + " " + formatToolUse(tool, indent+"     ") + "\n")
+					}
 				}
 			}
 
