@@ -37,12 +37,12 @@
 ## Quick Start
 
 ```bash
-# Install from source (easiest for now)
-go install github.com/regent-vcs/regent/cmd/rgt@latest
-
-# Or via Homebrew (macOS)
+# Install via Homebrew (macOS/Linux)
 brew tap regent-vcs/tap
 brew install regent
+
+# Or via Go
+go install github.com/regent-vcs/regent/cmd/rgt@latest
 
 # Initialize in your project
 cd your-project
@@ -192,7 +192,14 @@ Steps form a **DAG**. Each session has its own branch. Common ancestors dedupe. 
 
 ## Installation
 
-### Via Go Install (Recommended)
+### Via Homebrew (macOS/Linux)
+
+```bash
+brew tap regent-vcs/tap
+brew install regent
+```
+
+### Via Go Install
 
 ```bash
 go install github.com/regent-vcs/regent/cmd/rgt@latest
@@ -207,10 +214,9 @@ go build -o rgt ./cmd/rgt
 sudo mv rgt /usr/local/bin/
 ```
 
-### Coming Soon
+### Binary Releases
 
-- Homebrew: `brew install regent-vcs/tap/rgt`
-- Binary releases: [GitHub Releases](https://github.com/regent-vcs/regent/releases)
+Download pre-built binaries from [GitHub Releases](https://github.com/regent-vcs/regent/releases)
 
 ---
 

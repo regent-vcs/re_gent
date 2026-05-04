@@ -23,6 +23,9 @@ func InitCmd() *cobra.Command {
 		Short:        "Initialize a new regent repository",
 		Long:         "Creates a .regent directory in the current workspace and sets up the object store.",
 		SilenceUsage: true, // Don't show usage on logical errors
+		Annotations: map[string]string{
+			"commandOrder": "0", // Ensure init appears first in help
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, err := os.Getwd()
 			if err != nil {

@@ -62,14 +62,12 @@ brews:
     repository:
       owner: regent-vcs
       name: homebrew-tap
-      token: "{{ .Env.GITHUB_TOKEN }}"
     commit_author:
       name: regent-bot
       email: bot@regent-vcs.dev
     homepage: "https://github.com/regent-vcs/re_gent"
     description: "Git for AI agents - content-addressed version control for agent activity"
-    license: "MIT"
-    folder: Formula
+    license: "Apache-2.0"
     install: |
       bin.install "rgt"
     test: |
