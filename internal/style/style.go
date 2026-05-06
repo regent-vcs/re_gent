@@ -14,7 +14,7 @@ const (
 
 // ANSI 256-color codes (more compatible than RGB)
 const (
-	Purple256 = "\033[38;5;141m" // Regent Purple #9B59D0
+	Purple256 = "\033[38;5;141m" // re_gent Purple #9B59D0
 	Blue256   = "\033[38;5;69m"  // Royal Blue #5B7FFF
 	Green256  = "\033[38;5;42m"  // Emerald #10B981
 	Amber256  = "\033[38;5;214m" // Amber #F59E0B

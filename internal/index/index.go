@@ -62,10 +62,9 @@ func createSchema(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_steps_tool_use ON steps(tool_use_id);
 
 	CREATE TABLE IF NOT EXISTS step_files (
-		step_id    TEXT NOT NULL,
-		path       TEXT NOT NULL,
-		blob_hash  TEXT NOT NULL,
-		blame_hash TEXT,
+		step_id   TEXT NOT NULL,
+		path      TEXT NOT NULL,
+		blob_hash TEXT NOT NULL,
 		PRIMARY KEY (step_id, path)
 	);
 	CREATE INDEX IF NOT EXISTS idx_step_files_path ON step_files(path);
@@ -85,6 +84,31 @@ func createSchema(db *sql.DB) error {
 		session_id           TEXT PRIMARY KEY,
 		last_message_id      TEXT NOT NULL,
 		last_transcript_hash TEXT NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS messages (
+		id              TEXT PRIMARY KEY,
+		session_id      TEXT NOT NULL,
+		step_id         TEXT,
+		seq_num         INTEGER NOT NULL,
+		timestamp       INTEGER NOT NULL,
+		message_type    TEXT NOT NULL,
+		content_text    TEXT,
+		tool_name       TEXT,
+		tool_use_id     TEXT,
+		tool_input      TEXT,
+		tool_output     TEXT,
+		FOREIGN KEY (step_id) REFERENCES steps(id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_messages_session_seq ON messages(session_id, seq_num);
+	CREATE INDEX IF NOT EXISTS idx_messages_step ON messages(step_id);
+	CREATE INDEX IF NOT EXISTS idx_messages_tool_use ON messages(tool_use_id);
+
+	CREATE TABLE IF NOT EXISTS jsonl_snapshots (
+		session_id      TEXT NOT NULL,
+		captured_at     INTEGER NOT NULL,
+		jsonl_blob      TEXT NOT NULL,
+		PRIMARY KEY (session_id, captured_at)
 	);
 	`
 
@@ -164,9 +188,9 @@ func (idx *DB) IndexStep(stepHash store.Hash, step *store.Step, tree *store.Tree
 	// Insert file entries
 	for _, entry := range tree.Entries {
 		_, err = tx.Exec(`
-			INSERT OR REPLACE INTO step_files (step_id, path, blob_hash, blame_hash)
-			VALUES (?, ?, ?, ?)
-		`, stepHash, entry.Path, entry.Blob, entry.Blame)
+			INSERT OR REPLACE INTO step_files (step_id, path, blob_hash)
+			VALUES (?, ?, ?)
+		`, stepHash, entry.Path, entry.Blob)
 		if err != nil {
 			return fmt.Errorf("insert step file: %w", err)
 		}

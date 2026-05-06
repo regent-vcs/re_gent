@@ -1,8 +1,12 @@
 package store
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/regent-vcs/regent/internal/diff"
 )
@@ -68,4 +72,47 @@ func ComputeBlame(oldContent, newContent []byte, oldBlame *BlameMap, currentStep
 	}
 
 	return newBlame
+}
+
+// BlameKey generates deterministic path for blame storage
+func BlameKey(stepHash Hash, filePath string) string {
+	// Hash the file path for consistent directory structure
+	h := sha256.Sum256([]byte(filePath))
+	pathHash := hex.EncodeToString(h[:])[:16] // First 16 chars
+	return filepath.Join("blame", string(stepHash), pathHash)
+}
+
+// WriteBlameForFile writes blame map for a specific file at a step
+func (s *Store) WriteBlameForFile(stepHash Hash, filePath string, blameMap *BlameMap) error {
+	data, err := json.Marshal(blameMap)
+	if err != nil {
+		return err
+	}
+
+	key := BlameKey(stepHash, filePath)
+	blamePath := filepath.Join(s.Root, key)
+
+	if err := os.MkdirAll(filepath.Dir(blamePath), 0755); err != nil {
+		return err
+	}
+
+	return os.WriteFile(blamePath, data, 0644)
+}
+
+// ReadBlameForFile reads blame map for a specific file at a step
+func (s *Store) ReadBlameForFile(stepHash Hash, filePath string) (*BlameMap, error) {
+	key := BlameKey(stepHash, filePath)
+	blamePath := filepath.Join(s.Root, key)
+
+	data, err := os.ReadFile(blamePath)
+	if err != nil {
+		return nil, err
+	}
+
+	var blameMap BlameMap
+	if err := json.Unmarshal(data, &blameMap); err != nil {
+		return nil, err
+	}
+
+	return &blameMap, nil
 }

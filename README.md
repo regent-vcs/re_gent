@@ -2,7 +2,7 @@
   <a href="https://github.com/regent-vcs/regent">
     <img
       src="assets/regent-logo-dark.png"
-      alt="Regent"
+      alt="re_gent"
       width="100%"
     />
   </a>
@@ -13,7 +13,13 @@
     Version control for AI agent activity. Track what your agent did, which prompt wrote each line, and rewind when things break.
   </p>
 
-[![CI](https://github.com/regent-vcs/regent/actions/workflows/ci.yml/badge.svg)](https://github.com/regent-vcs/regent/actions/workflows/ci.yml) [![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen?logo=github)](CONTRIBUTING.md) [![Go Version](https://img.shields.io/github/go-mod/go-version/regent-vcs/regent)](go.mod) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Star on GitHub](https://img.shields.io/github/stars/regent-vcs/regent?style=for-the-badge&logo=github&color=gold)](https://github.com/regent-vcs/regent)
+[![Apache 2.0 License](https://img.shields.io/badge/License-Apache%202.0-blue?style=for-the-badge)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/regent-vcs/regent?style=for-the-badge&logo=go&logoColor=white&color=00ADD8)](go.mod)
+
+[![CI Status](https://img.shields.io/github/actions/workflow/status/regent-vcs/regent/ci.yml?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/regent-vcs/regent/actions/workflows/ci.yml)
+[![Contributions Welcome](https://img.shields.io/badge/Contributions-Welcome-10b981?style=for-the-badge&logo=github)](CONTRIBUTING.md)
+[![Claude Code Compatible](https://img.shields.io/badge/Claude%20Code-Compatible-6366f1?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/regent-vcs/regent)
 
 </div>
 
@@ -22,7 +28,7 @@
 ## Demo
 
 <div align="center">
-  <img src="assets/demo.gif" alt="Regent tracking Claude Code activity" width="100%"/>
+  <img src="assets/demo.gif" alt="re_gent tracking Claude Code activity" width="100%"/>
   <p><em>Every tool call is automatically captured. No manual commits needed.</em></p>
 </div>
 
@@ -31,14 +37,14 @@
 ## Quick Start
 
 ```bash
-# Install from source (easiest for now)
-go install github.com/regent-vcs/regent/cmd/rgt@latest
-
-# Or via Homebrew (macOS)
+# Install via Homebrew (macOS/Linux)
 brew tap regent-vcs/tap
 brew install regent
 
-# Initialize in your project
+# Or via Go
+go install github.com/regent-vcs/regent/cmd/rgt@latest
+
+# Initialize in your project (use either 'regent' or 'rgt')
 cd your-project
 rgt init
 
@@ -145,13 +151,13 @@ You know this pain:
 - **`rgt blame`** — which prompt wrote this line?
 - **`rgt rewind`** — restore to any previous step (coming soon)
 
-We gave agents write access to our codebases. We did not give ourselves git for it. Regent fixes that.
+We gave agents write access to our codebases. We did not give ourselves git for it. re_gent fixes that.
 
 ---
 
 ## How It Works
 
-Regent stores agent activity in `.regent/` (like `.git/`):
+re_gent stores agent activity in `.regent/` (like `.git/`):
 
 ```
 .regent/
@@ -186,10 +192,33 @@ Steps form a **DAG**. Each session has its own branch. Common ancestors dedupe. 
 
 ## Installation
 
-### Via Go Install (Recommended)
+### Via Homebrew (macOS/Linux)
+
+```bash
+brew tap regent-vcs/tap
+brew install regent
+```
+
+This installs both `regent` and `rgt` commands (they're identical) and automatically sets up shell completions for bash, zsh, and fish.
+
+### Via Go Install
 
 ```bash
 go install github.com/regent-vcs/regent/cmd/rgt@latest
+```
+
+This installs the `rgt` command.
+
+**Shell Completion (manual setup):**
+```bash
+# Bash
+rgt completion bash > /usr/local/etc/bash_completion.d/rgt
+
+# Zsh
+rgt completion zsh > "${fpath[1]}/_rgt"
+
+# Fish
+rgt completion fish > ~/.config/fish/completions/rgt.fish
 ```
 
 ### From Source
@@ -199,12 +228,43 @@ git clone https://github.com/regent-vcs/regent
 cd regent
 go build -o rgt ./cmd/rgt
 sudo mv rgt /usr/local/bin/
+# Optionally create a symlink: sudo ln -s /usr/local/bin/rgt /usr/local/bin/regent
 ```
 
-### Coming Soon
+For shell completion, follow the "Via Go Install" instructions above.
 
-- Homebrew: `brew install regent-vcs/tap/rgt`
-- Binary releases: [GitHub Releases](https://github.com/regent-vcs/regent/releases)
+### Binary Releases
+
+Download pre-built binaries from [GitHub Releases](https://github.com/regent-vcs/regent/releases)
+
+---
+
+## Editor Integration
+
+### VSCode Extension
+
+Get inline blame annotations directly in your editor:
+
+```bash
+# Install from VS Code Marketplace
+# Search for "re_gent Blame"
+```
+
+Or install from source:
+```bash
+git clone https://github.com/regent-vcs/vscode-regent
+cd vscode-regent
+npm install && npm run compile
+# Press F5 in VS Code to launch
+```
+
+**Features:**
+- Inline blame annotations showing which step modified each line
+- Hover tooltips with full step context
+- Session timeline view in the sidebar
+- One-click access to conversation history
+
+[View on GitHub →](https://github.com/regent-vcs/vscode-regent)
 
 ---
 
@@ -243,9 +303,9 @@ sudo mv rgt /usr/local/bin/
 
 ---
 
-## Regent vs Git
+## re_gent vs Git
 
-| | Git | Regent |
+| | Git | re_gent |
 |---|---|---|
 | **Tracks code** | ✅ | ✅ |
 | **Tracks agent activity** | ❌ | ✅ |
@@ -254,7 +314,7 @@ sudo mv rgt /usr/local/bin/
 | **Concurrent sessions** | ⚠️ conflicts | ✅ separate branches |
 | **Purpose** | Developer VCS | Agent audit trail |
 
-**Regent complements git, doesn't replace it.** Use both.
+**re_gent complements git, doesn't replace it.** Use both.
 
 ---
 
@@ -286,7 +346,7 @@ Check [GitHub Projects](https://github.com/regent-vcs/regent/projects) for curre
 
 ## Contributing
 
-Contributions are welcome! Regent is built in public and we actively review PRs.
+Contributions are welcome! re_gent is built in public and we actively review PRs.
 
 **Quick Start:**
 - Read [QUICK_START.md](.github/QUICK_START.md) for a 5-minute setup guide

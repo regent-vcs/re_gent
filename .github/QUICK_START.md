@@ -1,6 +1,6 @@
 # Quick Start for Contributors
 
-Fast-track guide to contributing to Regent. For full details, see [CONTRIBUTING.md](CONTRIBUTING.md).
+Fast-track guide to contributing to re_gent. For full details, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 

@@ -1,4 +1,4 @@
-# Regent Testing Guide
+# re_gent Testing Guide
 
 Quick guide to test the `rgt` CLI and hook integration.
 
@@ -115,7 +115,7 @@ done
 
 ## Test 4: Enable Hook in Claude Code
 
-**For the Regent project itself (dogfooding):**
+**For the re_gent project itself (dogfooding):**
 
 1. Open `/Users/shay/Projects/regent/.claude/settings.json`
 
@@ -162,7 +162,7 @@ cd /tmp/test-claude-regent
 # That's it! Hook is already configured.
 
 # Now start a Claude Code session in this directory
-# Ask Claude to: "Create a file hello.txt with content 'Hello Regent!'"
+# Ask Claude to: "Create a file hello.txt with content 'Hello re_gent!'"
 
 # After Claude creates the file, check:
 /Users/shay/Projects/regent/rgt log

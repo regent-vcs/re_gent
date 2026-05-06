@@ -1,6 +1,6 @@
 # Support
 
-Thanks for using Regent! Here's how to get help.
+Thanks for using re_gent! Here's how to get help.
 
 ## Documentation
 
@@ -19,7 +19,7 @@ Have a question? Want to discuss a feature? Use [GitHub Discussions](https://git
 **Discussion categories:**
 - **Q&A** - Ask questions, get answers from the community
 - **Ideas** - Propose features or improvements
-- **Show & Tell** - Share what you've built with Regent
+- **Show & Tell** - Share what you've built with re_gent
 - **General** - Everything else
 
 ### Bug Reports

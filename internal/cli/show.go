@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/regent-vcs/regent/internal/index"
 	"github.com/regent-vcs/regent/internal/store"
 	"github.com/regent-vcs/regent/internal/style"
 	"github.com/spf13/cobra"
@@ -33,8 +34,15 @@ func ShowCmd() *cobra.Command {
 				return err
 			}
 
+			// Open index for hash resolution
+			idx, err := index.Open(s)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = idx.Close() }()
+
 			// Resolve short hash to full hash
-			fullHash, err := s.ResolveShortHash(stepHashPrefix)
+			fullHash, err := idx.NormalizeStepHash(stepHashPrefix)
 			if err != nil {
 				return fmt.Errorf("resolve hash %s: %w", stepHashPrefix, err)
 			}

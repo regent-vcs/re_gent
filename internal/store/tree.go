@@ -8,10 +8,9 @@ import (
 
 // TreeEntry represents a file in a tree
 type TreeEntry struct {
-	Path  string `json:"path"`
-	Blob  Hash   `json:"blob"`
-	Blame Hash   `json:"blame,omitempty"` // per-line provenance for this file
-	Mode  uint32 `json:"mode,omitempty"`  // unix mode (executable bit matters)
+	Path string `json:"path"`
+	Blob Hash   `json:"blob"`
+	Mode uint32 `json:"mode,omitempty"` // unix mode (executable bit matters)
 }
 
 // Tree represents the workspace at one moment

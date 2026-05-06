@@ -1,6 +1,6 @@
 # Contributors
 
-Thank you to everyone who has contributed to Regent!
+Thank you to everyone who has contributed to re_gent!
 
 ## Core Maintainers
 
@@ -39,7 +39,7 @@ We recognize different types of contributions:
 - 🔍 **Review** - Code review and feedback
 - 🧪 **Testing** - Testing releases and providing feedback
 - 🎨 **Design** - UI/UX design work
-- 📢 **Evangelism** - Spreading the word about Regent
+- 📢 **Evangelism** - Spreading the word about re_gent
 - 💬 **Community** - Answering questions, helping others
 
 ---
