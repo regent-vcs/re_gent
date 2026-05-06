@@ -239,6 +239,35 @@ Download pre-built binaries from [GitHub Releases](https://github.com/regent-vcs
 
 ---
 
+## Editor Integration
+
+### VSCode Extension
+
+Get inline blame annotations directly in your editor:
+
+```bash
+# Install from VS Code Marketplace
+# Search for "re_gent Blame"
+```
+
+Or install from source:
+```bash
+git clone https://github.com/regent-vcs/vscode-regent
+cd vscode-regent
+npm install && npm run compile
+# Press F5 in VS Code to launch
+```
+
+**Features:**
+- Inline blame annotations showing which step modified each line
+- Hover tooltips with full step context
+- Session timeline view in the sidebar
+- One-click access to conversation history
+
+[View on GitHub →](https://github.com/regent-vcs/vscode-regent)
+
+---
+
 ## Commands
 
 **Available Now:**
