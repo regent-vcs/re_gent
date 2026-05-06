@@ -1,3 +1,0 @@
-🍎
-This line was added by Claude to test the VS Code extension.
-The extension should show blame annotations on this line!

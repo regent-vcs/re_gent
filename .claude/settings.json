@@ -4,24 +4,13 @@
     "pr": ""
   },
   "hooks": {
-    "PostToolBatch": [
+    "UserPromptSubmit": [
       {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "rgt tool-batch-hook"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "rgt hook"
+            "command": "rgt message-hook user"
           }
         ]
       }
@@ -37,13 +26,13 @@
         ]
       }
     ],
-    "UserPromptSubmit": [
+    "PostToolBatch": [
       {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "rgt message-hook user"
+            "command": "rgt tool-batch-hook"
           }
         ]
       }

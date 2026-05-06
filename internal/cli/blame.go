@@ -94,14 +94,10 @@ func BlameCmd() *cobra.Command {
 				return fmt.Errorf("file not found in head tree: %s", path)
 			}
 
-			if entry.Blame == "" {
-				return fmt.Errorf("no blame map for %s (file added before blame tracking)", path)
-			}
-
-			// Read blame map
-			blameMap, err := s.ReadBlame(entry.Blame)
+			// Read blame map from separate storage
+			blameMap, err := s.ReadBlameForFile(headStepHash, normalizedPath)
 			if err != nil {
-				return err
+				return fmt.Errorf("no blame map for %s (file added before blame tracking): %w", path, err)
 			}
 
 			// Check if file is empty

@@ -62,10 +62,9 @@ func createSchema(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_steps_tool_use ON steps(tool_use_id);
 
 	CREATE TABLE IF NOT EXISTS step_files (
-		step_id    TEXT NOT NULL,
-		path       TEXT NOT NULL,
-		blob_hash  TEXT NOT NULL,
-		blame_hash TEXT,
+		step_id   TEXT NOT NULL,
+		path      TEXT NOT NULL,
+		blob_hash TEXT NOT NULL,
 		PRIMARY KEY (step_id, path)
 	);
 	CREATE INDEX IF NOT EXISTS idx_step_files_path ON step_files(path);
@@ -189,9 +188,9 @@ func (idx *DB) IndexStep(stepHash store.Hash, step *store.Step, tree *store.Tree
 	// Insert file entries
 	for _, entry := range tree.Entries {
 		_, err = tx.Exec(`
-			INSERT OR REPLACE INTO step_files (step_id, path, blob_hash, blame_hash)
-			VALUES (?, ?, ?, ?)
-		`, stepHash, entry.Path, entry.Blob, entry.Blame)
+			INSERT OR REPLACE INTO step_files (step_id, path, blob_hash)
+			VALUES (?, ?, ?)
+		`, stepHash, entry.Path, entry.Blob)
 		if err != nil {
 			return fmt.Errorf("insert step file: %w", err)
 		}

@@ -73,7 +73,7 @@ func runMessageHook(cmd *cobra.Command, args []string) error {
 
 	switch hookType {
 	case "user":
-		return handleUserPrompt(idx, payload)
+		return handleUserPrompt(idx, s, payload)
 	case "assistant":
 		return handleAssistantResponse(idx, s, payload)
 	default:
@@ -81,15 +81,19 @@ func runMessageHook(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func handleUserPrompt(idx *index.DB, payload []byte) error {
+func handleUserPrompt(idx *index.DB, s *store.Store, payload []byte) error {
 	var p userPromptPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
+		logDebug(s, fmt.Sprintf("UserPrompt: parse error: %v", err))
 		return fmt.Errorf("parse payload: %w", err)
 	}
+
+	logDebug(s, fmt.Sprintf("UserPrompt: session=%s prompt=%s", p.SessionID, truncateString(p.Prompt, 50)))
 
 	// Get next sequence number for session
 	seqNum, err := idx.GetNextMessageSeq(p.SessionID)
 	if err != nil {
+		logDebug(s, fmt.Sprintf("UserPrompt: seq error: %v", err))
 		return fmt.Errorf("get sequence: %w", err)
 	}
 
@@ -104,9 +108,11 @@ func handleUserPrompt(idx *index.DB, payload []byte) error {
 	}
 
 	if err := idx.InsertMessage(msg); err != nil {
+		logDebug(s, fmt.Sprintf("UserPrompt: insert error: %v", err))
 		return fmt.Errorf("insert message: %w", err)
 	}
 
+	logDebug(s, "UserPrompt: success")
 	return nil
 }
 
@@ -173,6 +179,25 @@ func generateMessageID() string {
 	return fmt.Sprintf("msg_%d", time.Now().UnixNano())
 }
 
+func truncateString(str string, max int) string {
+	if len(str) <= max {
+		return str
+	}
+	return str[:max] + "..."
+}
+
+func logDebug(s *store.Store, msg string) {
+	logPath := filepath.Join(s.Root, "log", "hook-debug.log")
+	_ = os.MkdirAll(filepath.Dir(logPath), 0755)
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+	timestamp := time.Now().Format("2006-01-02T15:04:05-07:00")
+	fmt.Fprintf(f, "[%s] %s\n", timestamp, msg)
+}
+
 // createStepForTurn creates one step for the entire conversation turn
 // This captures all tools executed in this turn (multi-tool support)
 func createStepForTurn(s *store.Store, idx *index.DB, sessionID, cwd string) error {
@@ -222,19 +247,13 @@ func createStepForTurn(s *store.Store, idx *index.DB, sessionID, cwd string) err
 		return nil
 	}
 
-	// Snapshot workspace
+	// 1. Snapshot workspace (tree without blame)
 	treeHash, err := snapshotWorkspace(s, cwd)
 	if err != nil {
 		return fmt.Errorf("snapshot workspace: %w", err)
 	}
 
-	// Compute blame for modified files
-	treeHash, err = computeBlameForTree(s, parentHash, treeHash)
-	if err != nil {
-		return fmt.Errorf("compute blame: %w", err)
-	}
-
-	// Create step with multiple causes
+	// 2. Write step with clean tree (no circular dependency!)
 	step := &store.Step{
 		Parent:         parentHash,
 		Tree:           treeHash,
@@ -243,9 +262,8 @@ func createStepForTurn(s *store.Store, idx *index.DB, sessionID, cwd string) err
 		TimestampNanos: time.Now().UnixNano(),
 	}
 
-	// For backward compat, also set single Cause field to first tool
 	if len(causes) > 0 {
-		step.Cause = causes[0]
+		step.Cause = causes[0] // Backward compat
 	}
 
 	stepHash, err := s.WriteStep(step)
@@ -253,22 +271,33 @@ func createStepForTurn(s *store.Store, idx *index.DB, sessionID, cwd string) err
 		return fmt.Errorf("write step: %w", err)
 	}
 
-	// Update session ref with CAS retry
+	logDebug(s, fmt.Sprintf("Created step: %s", stepHash[:16]))
+
+	// 3. NOW compute blame using the real step hash
+	if err := computeAndWriteBlame(s, parentHash, stepHash, treeHash); err != nil {
+		logDebug(s, fmt.Sprintf("Compute blame error: %v", err))
+		// Don't fail the hook if blame computation fails
+	}
+
+	// 4. Update session ref
 	if err := s.UpdateRefWithRetry("sessions/"+sessionID, parentHash, stepHash, 8); err != nil {
 		return fmt.Errorf("update ref: %w", err)
 	}
 
-	// Read tree for indexing
+	// 5. Index step
 	tree, err := s.ReadTree(treeHash)
 	if err != nil {
 		return fmt.Errorf("read tree: %w", err)
 	}
 
-	// Index the step (best effort)
-	_ = idx.IndexStep(stepHash, step, tree)
+	if err := idx.IndexStep(stepHash, step, tree); err != nil {
+		logDebug(s, fmt.Sprintf("Index step error: %v", err))
+	}
 
-	// Link all orphan messages to this step
-	_ = idx.LinkMessagesToStep(sessionID, stepHash)
+	// 6. Link messages to step
+	if err := idx.LinkMessagesToStep(sessionID, stepHash); err != nil {
+		logDebug(s, fmt.Sprintf("Link messages error: %v", err))
+	}
 
 	return nil
 }
@@ -290,11 +319,12 @@ func loadIgnorePatterns(root string) (*ignore.Matcher, error) {
 	return ignore.Default(root), nil
 }
 
-func computeBlameForTree(s *store.Store, parentHash, treeHash store.Hash) (store.Hash, error) {
+// computeAndWriteBlame computes blame for all files and writes to separate storage
+func computeAndWriteBlame(s *store.Store, parentHash, currentStepHash, treeHash store.Hash) error {
 	// Read current tree
 	tree, err := s.ReadTree(treeHash)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	// Read parent tree if exists
@@ -307,24 +337,30 @@ func computeBlameForTree(s *store.Store, parentHash, treeHash store.Hash) (store
 	}
 
 	// Compute blame for each file
-	for i := range tree.Entries {
-		entry := &tree.Entries[i]
-
+	for _, entry := range tree.Entries {
 		// Find file in parent tree
 		var parentEntry *store.TreeEntry
 		if parentTree != nil {
-			for j := range parentTree.Entries {
-				if parentTree.Entries[j].Path == entry.Path {
-					parentEntry = &parentTree.Entries[j]
+			for i := range parentTree.Entries {
+				if parentTree.Entries[i].Path == entry.Path {
+					parentEntry = &parentTree.Entries[i]
 					break
 				}
 			}
 		}
 
 		// If file unchanged (same blob hash), inherit parent blame
-		if parentEntry != nil && parentEntry.Blob == entry.Blob && parentEntry.Blame != "" {
-			entry.Blame = parentEntry.Blame
-			continue
+		if parentEntry != nil && parentEntry.Blob == entry.Blob {
+			// Copy blame from parent step to current step
+			oldBlame, err := s.ReadBlameForFile(parentHash, entry.Path)
+			if err == nil {
+				if err := s.WriteBlameForFile(currentStepHash, entry.Path, oldBlame); err != nil {
+					logDebug(s, fmt.Sprintf("Failed to copy blame for %s: %v", entry.Path, err))
+				}
+				continue
+			}
+			// Parent blame doesn't exist - need to create initial blame
+			// Fall through to compute blame for this file
 		}
 
 		// File is new or modified - compute blame
@@ -332,34 +368,24 @@ func computeBlameForTree(s *store.Store, parentHash, treeHash store.Hash) (store
 		var oldBlame *store.BlameMap
 
 		if parentEntry != nil {
-			// Read old content
 			oldContent, _ = s.ReadBlob(parentEntry.Blob)
-			// Read old blame if exists
-			if parentEntry.Blame != "" {
-				oldBlame, _ = s.ReadBlame(parentEntry.Blame)
-			}
+			oldBlame, _ = s.ReadBlameForFile(parentHash, parentEntry.Path)
 		}
 
-		// Read new content
 		newContent, err := s.ReadBlob(entry.Blob)
 		if err != nil {
-			continue // Skip if can't read
+			continue
 		}
 
-		// Compute blame (use a placeholder hash since we don't have the step yet)
-		// We'll use empty hash for now - this is a simplification
-		// The proper way would be to use a pre-step hash, but that's complex
-		newBlame := store.ComputeBlame(oldContent, newContent, oldBlame, treeHash)
+		// Compute blame using the REAL step hash (no placeholder!)
+		newBlame := store.ComputeBlame(oldContent, newContent, oldBlame, currentStepHash)
 
-		// Write blame map
-		blameHash, err := s.WriteBlame(newBlame)
-		if err != nil {
-			continue // Skip if can't write
+		// Write blame to separate storage
+		if err := s.WriteBlameForFile(currentStepHash, entry.Path, newBlame); err != nil {
+			logDebug(s, fmt.Sprintf("Failed to write blame for %s: %v", entry.Path, err))
 		}
-
-		entry.Blame = blameHash
 	}
 
-	// Write updated tree with blame hashes
-	return s.WriteTree(tree)
+	return nil
 }
+
