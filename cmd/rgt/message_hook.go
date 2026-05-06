@@ -388,4 +388,3 @@ func computeAndWriteBlame(s *store.Store, parentHash, currentStepHash, treeHash 
 
 	return nil
 }
-

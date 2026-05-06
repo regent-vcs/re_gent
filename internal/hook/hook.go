@@ -1,7 +1,6 @@
 package hook
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,7 +13,6 @@ import (
 	"github.com/regent-vcs/regent/internal/index"
 	"github.com/regent-vcs/regent/internal/snapshot"
 	"github.com/regent-vcs/regent/internal/store"
-	"lukechampine.com/blake3"
 )
 
 // Run is the main hook entry point, invoked by Claude Code after each tool use.
@@ -132,19 +130,6 @@ func logError(s *store.Store, err error) error {
 
 	// Return nil so hook exits cleanly and doesn't break the agent
 	return nil
-}
-
-// computePreStepHash creates a deterministic hash before step exists
-// Used as currentStep reference in blame computation
-func computePreStepHash(parent, tree, argsBlob, resultBlob store.Hash, p Payload) store.Hash {
-	h := blake3.New(32, nil)
-	h.Write([]byte(parent))
-	h.Write([]byte(tree))
-	h.Write([]byte(argsBlob))
-	h.Write([]byte(resultBlob))
-	h.Write([]byte(p.SessionID))
-	h.Write([]byte(p.ToolUseID))
-	return store.Hash(hex.EncodeToString(h.Sum(nil)))
 }
 
 // shouldSkipStep returns true if this tool call should not create a step.

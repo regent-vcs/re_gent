@@ -194,22 +194,3 @@ func RenderGraphLine(node *GraphNode, layout *GraphLayout, nextNode *GraphNode) 
 
 	return line.String()
 }
-
-// renderConnectorLine generates connector lines between commits
-func renderConnectorLine(node *GraphNode, layout *GraphLayout, nextNode *GraphNode) string {
-	var line strings.Builder
-
-	for col := 0; col < layout.MaxColumns; col++ {
-		if col == node.Column {
-			// Main branch continues
-			line.WriteString(style.DimText("│ "))
-		} else if nextNode != nil && col == nextNode.Column && col < node.Column {
-			// Branch point
-			line.WriteString(style.DimText("├─"))
-		} else {
-			line.WriteString(style.DimText("  "))
-		}
-	}
-
-	return line.String()
-}

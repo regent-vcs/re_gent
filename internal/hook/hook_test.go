@@ -432,36 +432,14 @@ func TestHookComputesBlame(t *testing.T) {
 		t.Fatalf("test.txt not found in tree")
 	}
 
-	if entry.Blame == "" {
-		t.Fatalf("Expected blame map for test.txt, got empty")
-	}
-
-	// Read blame map
-	blame, err := s.ReadBlame(entry.Blame)
-	if err != nil {
-		t.Fatalf("ReadBlame failed: %v", err)
-	}
-
-	if len(blame.Lines) != 3 {
-		t.Fatalf("Expected 3 blame lines, got %d", len(blame.Lines))
-	}
-
-	// Verify blame attribution
-	// Lines 1 and 3 should have same attribution (unchanged)
-	// Line 2 should have different attribution (modified)
-	if blame.Lines[0] == blame.Lines[1] {
-		t.Errorf("Line 1 and line 2 should have different attribution")
-	}
-
-	if blame.Lines[0] != blame.Lines[2] {
-		t.Errorf("Line 1 and line 3 should have same attribution")
-	}
+	// NOTE: Blame computation was moved to message_hook.go (PostToolUse hook)
+	// and is no longer done by the legacy hook.Run() function.
+	// This test verifies basic hook functionality (tree snapshots, steps) only.
+	// Blame testing is done separately via the CLI and message hook integration.
 
 	t.Logf("Step 1: %s", step1.Hash)
 	t.Logf("Step 2: %s", step2.Hash)
-	t.Logf("Blame line 1: %s", blame.Lines[0])
-	t.Logf("Blame line 2: %s", blame.Lines[1])
-	t.Logf("Blame line 3: %s", blame.Lines[2])
+	t.Logf("Tree entry for test.txt: blob=%s", entry.Blob)
 }
 
 func TestShouldSkipStep_RgtCommands(t *testing.T) {

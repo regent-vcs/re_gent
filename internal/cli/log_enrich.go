@@ -183,14 +183,6 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 	return enriched, nil
 }
 
-// extractPrimaryFiles gets the most relevant files from a tree based on tool type
-func extractPrimaryFiles(tree *store.Tree, toolName string) []string {
-	// Don't show files from tree snapshot - it's misleading
-	// The tree contains ALL files in workspace, not just what the tool touched
-	// TODO: Compute diff against parent tree to show actual changes
-	return []string{}
-}
-
 // extractFilesFromToolArgs extracts file paths from tool arguments
 // This shows what the tool actually operated on, not all files in the workspace
 func extractFilesFromToolArgs(toolName string, args json.RawMessage) []string {

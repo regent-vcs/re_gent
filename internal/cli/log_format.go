@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/regent-vcs/regent/internal/conversation"
@@ -26,7 +25,7 @@ const (
 type EnrichedStep struct {
 	StepInfo    index.StepInfo
 	Files       []string
-	FileDiffs   []FileDiff        // Actual file changes (parent → current)
+	FileDiffs   []FileDiff // Actual file changes (parent → current)
 	Args        json.RawMessage
 	Result      json.RawMessage
 	Duration    time.Duration
@@ -323,18 +322,6 @@ func formatFileStat(fd FileDiff) string {
 		return style.DimText(fmt.Sprintf("-%d", fd.Deletions))
 	}
 	return style.DimText(fmt.Sprintf("+%d -%d", fd.Additions, fd.Deletions))
-}
-
-func truncateJSON(data json.RawMessage, maxLen int) string {
-	s := string(data)
-	// Remove newlines and extra spaces
-	s = strings.ReplaceAll(s, "\n", " ")
-	s = strings.Join(strings.Fields(s), " ")
-
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
 }
 
 func truncate(s string, maxLen int) string {

@@ -234,7 +234,7 @@ func formatText(text string, indent string, maxLen int) string {
 // formatToolUse formats a tool invocation with key arguments
 func formatToolUse(tool ToolUse, indent string) string {
 	var parts []string
-	parts = append(parts, fmt.Sprintf("%s", tool.Name))
+	parts = append(parts, tool.Name)
 
 	// Add key arguments
 	if len(tool.Input) > 0 {

@@ -44,7 +44,7 @@ brew install regent
 # Or via Go
 go install github.com/regent-vcs/regent/cmd/rgt@latest
 
-# Initialize in your project (use either 'regent' or 'rgt')
+# Initialize in your project
 cd your-project
 rgt init
 
@@ -52,6 +52,7 @@ rgt init
 
 # See what happened
 rgt log
+rgt blame src/file.go:42
 ```
 
 That's it. Your agent activity is now auditable.
@@ -245,26 +246,34 @@ Download pre-built binaries from [GitHub Releases](https://github.com/regent-vcs
 
 Get inline blame annotations directly in your editor:
 
-```bash
-# Install from VS Code Marketplace
-# Search for "re_gent Blame"
-```
+**Installation Options:**
 
-Or install from source:
 ```bash
+# 1. From VSIX (Recommended)
+# Download the latest .vsix from:
+# https://github.com/regent-vcs/vscode-regent/releases
+# Then in VS Code: Extensions > ... > Install from VSIX...
+
+# 2. From VS Code Marketplace (Coming Soon)
+# Search for "re_gent Blame"
+
+# 3. From source (Development)
 git clone https://github.com/regent-vcs/vscode-regent
 cd vscode-regent
 npm install && npm run compile
-# Press F5 in VS Code to launch
+# Press F5 in VS Code to launch Extension Development Host
 ```
 
 **Features:**
 - Inline blame annotations showing which step modified each line
-- Hover tooltips with full step context
+- Hover tooltips with full step context (timestamp, tool name, arguments)
 - Session timeline view in the sidebar
 - One-click access to conversation history
+- Direct SQLite integration—no subprocess overhead
 
-[View on GitHub →](https://github.com/regent-vcs/vscode-regent)
+**Requirements:** re_gent CLI must be installed and `rgt init` run in your project.
+
+[View Extension Docs →](https://github.com/regent-vcs/vscode-regent)
 
 ---
 
@@ -278,16 +287,19 @@ npm install && npm run compile
 | `rgt log` | Show step history (supports `--session`, `-n`, `--since`) |
 | `rgt sessions` | List all active sessions |
 | `rgt status` | Show current repository state |
-| `rgt show <step>` | Display full context for a step |
+| `rgt show <step>` | Display full context for a step (tool call + conversation) |
+| `rgt blame <path>[:<line>]` | Show per-line provenance for a file |
 | `rgt cat <hash>` | Inspect any object by hash (debug) |
+| `rgt version` | Print version information |
+| `rgt completion` | Generate shell completion scripts |
 
 **Coming Soon:**
 
-| Command | Status | Description |
-|---------|--------|-------------|
-| `rgt blame <path>:<line>` | Phase 3 | Per-line provenance with prompt |
-| `rgt rewind <step>` | Phase 5 | Non-destructive time-travel |
-| `rgt gc` | Phase 6 | Garbage collection |
+| Command | Description |
+|---------|-------------|
+| `rgt rewind <step>` | Non-destructive time-travel |
+| `rgt gc` | Garbage collection |
+| `rgt fork <step>` | Create a new session from a step |
 
 ---
 
@@ -318,27 +330,15 @@ npm install && npm run compile
 
 ---
 
-## Roadmap
-
-- **Phase 1:** Object store (blob, tree, step, ref) — **COMPLETE**
-- **Phase 2:** Hook integration (Claude Code) — **COMPLETE**
-- **Phase 3:** Blame algorithm (Myers diff) — **IN PROGRESS**
-- **Phase 4:** Transcript capture (JSONL) — **PLANNED**
-- **Phase 5:** Rewind (time-travel) — **PLANNED**
-- **Phase 6:** Concurrency hardening — **PLANNED**
-
-Check [GitHub Projects](https://github.com/regent-vcs/regent/projects) for current priorities.
-
----
-
 ## Status
 
-**Active Development (POC Stage)**
+**Active Development**
 
-- ~4.5k LOC Go implementation
-- Core functionality works (Phases 1-2 complete)
-- Used in production by contributors
-- Not yet v1.0 (see roadmap)
+- ~7.8k LOC Go implementation
+- Core functionality: init, log, sessions, status, show, blame — **COMPLETE**
+- Hook integration (Claude Code) — **COMPLETE**
+- Used daily by contributors
+- Not yet v1.0
 
 **Honest assessment:** Production-quality code at POC-level feature completeness. We're building in public.
 
@@ -351,7 +351,7 @@ Contributions are welcome! re_gent is built in public and we actively review PRs
 **Quick Start:**
 - Read [QUICK_START.md](.github/QUICK_START.md) for a 5-minute setup guide
 - Check [good first issues](https://github.com/regent-vcs/regent/labels/good%20first%20issue)
-- Full guidelines: [CONTRIBUTING.md](.github/CONTRIBUTING.md)
+- Full guidelines: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 **Before opening a PR:**
 - [ ] Tests pass: `go test ./...` and `go test -race ./...`
@@ -360,8 +360,9 @@ Contributions are welcome! re_gent is built in public and we actively review PRs
 - [ ] PR template filled out
 
 **Important files:**
-- [CONTRIBUTING.md](.github/CONTRIBUTING.md) — Full contribution guide
-- [SECURITY.md](SECURITY.md) — Security policy and reporting
+- [CONTRIBUTING.md](CONTRIBUTING.md) — Full contribution guide
+- [SUPPORT.md](SUPPORT.md) — Support and help resources
+- [TESTING.md](TESTING.md) — Testing guide and strategy
 - [CLAUDE.md](CLAUDE.md) — Project context and architecture
 - [POC.md](POC.md) — Technical specification
 
