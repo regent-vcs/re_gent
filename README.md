@@ -28,7 +28,7 @@
 ## Demo
 
 <div align="center">
-  <img src="assets/demo.gif" alt="re_gent tracking Claude Code activity" width="100%"/>
+  <img src="assets/demo-fast.gif" alt="re_gent tracking Claude Code activity" width="100%"/>
   <p><em>Every tool call is automatically captured. No manual commits needed.</em></p>
 </div>
 
@@ -341,6 +341,34 @@ npm install && npm run compile
 - Not yet v1.0
 
 **Honest assessment:** Production-quality code at POC-level feature completeness. We're building in public.
+
+---
+
+## 🔥 Current Focus
+
+**Phase 3: Advanced Features** (May 2026)
+
+We're working on:
+- **`rgt fork`** — Create new sessions from any step (enables branching exploration)
+- **`rgt rewind`** — Non-destructive time-travel to previous steps
+- **Performance optimization** — Faster snapshots for large repositories
+
+**Want to help?** Check [good first issues](https://github.com/regent-vcs/regent/labels/good%20first%20issue) or the issues tagged with `phase-3`.
+
+---
+
+## Roadmap
+
+| Phase | Status | Features |
+|-------|--------|----------|
+| **Phase 1: Core Storage** | ✅ Complete | Object store, content addressing, SQLite index |
+| **Phase 2: Hook Integration** | ✅ Complete | Claude Code capture, session tracking |
+| **Phase 3: Advanced Features** | 🚧 In Progress | fork, rewind, performance optimization |
+| **Phase 4: Multi-Tool Support** | 📋 Planned | Cursor, Cline, Continue adapters |
+| **Phase 5: Collaboration** | 📋 Planned | Session sharing, merge support |
+| **Phase 6: Enterprise** | 💭 Future | Team analytics, compliance reporting |
+
+See [POC.md](POC.md) for detailed implementation specs.
 
 ---
 
