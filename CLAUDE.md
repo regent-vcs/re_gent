@@ -1,6 +1,6 @@
 # re_gent
 
-> Git for AI agents. A content-addressed, DAG-based version control system that captures *what* an agent did, *why* (which prompt), and lets you blame, log, and rewind across sessions.
+> Version control for AI agents. A content-addressed, DAG-based version control system that captures *what* an agent did, *why* (which prompt), and lets you blame, log, and rewind across sessions.
 
 This document is the project's source of truth for context, vocabulary, and architectural decisions. It is the first file Claude (or any contributor) should read when working in this repo.
 

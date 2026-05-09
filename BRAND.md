@@ -1,6 +1,6 @@
 # re_gent Brand Guidelines
 
-> *"Git for AI agents"* — but make it vibe.
+> *"Version control for AI agents"* — but make it vibe.
 
 This document is serious about the brand, but not about itself. If you're touching anything user-facing (CLI output, docs, logos, error messages), read this first.
 
