@@ -8,7 +8,7 @@
   </a>
   <br />
   <br />
-  <h1>Git for AI Agents</h1>
+  <h1>Version-Control for AI Agents</h1>
   <p>
     Version control for AI agent activity. Track what your agent did, which prompt wrote each line, and rewind when things break.
   </p>
