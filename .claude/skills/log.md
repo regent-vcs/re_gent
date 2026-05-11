@@ -5,7 +5,7 @@ description: Show re_gent step history for the default or selected session
 
 # Log Skill
 
-Shows the re_gent version control log for the default or selected session, displaying captured tool calls, file changes, and conversation.
+Shows the re_gent version control log for the default or selected session. The default view is a conversation timeline with captured tool calls; use file flags when you need file summaries.
 
 ## Usage
 
@@ -23,10 +23,11 @@ Optional flags:
 ## What it shows
 
 By default, the log displays:
-- **Full conversation**: User prompts, assistant responses, and tool invocations
-- **File changes**: Which files were modified with line counts (+additions, -deletions)
+- **Conversation timeline**: User prompts, assistant responses, and tool invocations
 - **Timestamps**: When each step occurred
 - **Tool details**: Which tools were used and their key parameters
+
+Use `--files-only` when you want file paths and line statistics instead of the conversation timeline.
 
 ## Examples
 
@@ -71,20 +72,20 @@ rgt sessions
 
 ## Output
 
-The log shows steps in reverse-chronological order (newest first), with each step including:
+The default log shows conversation turns in chat order for the selected session. File-focused output is available with `--files-only`.
 
 1. **Conversation context** (if available):
    - User: Your prompt
    - Assistant: My response  
    - Tools: Tool calls with parameters
 
-2. **Tool execution**:
+2. **Tool execution metadata**:
    - Tool name (Read, Write, Edit, Bash, etc.)
    - Step hash (first 8 chars)
    - Timestamp
    - Duration
 
-3. **File changes** (if any):
+3. **File changes** (with `--files-only`):
    - File paths modified
    - Line statistics (+/-) 
    - Binary file indicators

@@ -144,6 +144,38 @@ func (idx *DB) GetMessagesForStep(stepID store.Hash) ([]Message, error) {
 	return messages, rows.Err()
 }
 
+// ToolUseExists reports whether a tool call was already recorded.
+func (idx *DB) ToolUseExists(sessionID, turnID, toolUseID string, allTurns bool) (bool, error) {
+	if sessionID == "" {
+		return false, fmt.Errorf("session id is required")
+	}
+	if toolUseID == "" {
+		return false, fmt.Errorf("tool use id is required")
+	}
+	if !allTurns && turnID == "" {
+		return false, fmt.Errorf("turn id is required")
+	}
+
+	query := `
+		SELECT COUNT(*)
+		FROM messages
+		WHERE session_id = ?
+		  AND message_type = 'tool_call'
+		  AND tool_use_id = ?
+	`
+	args := []interface{}{sessionID, toolUseID}
+	if !allTurns {
+		query += ` AND turn_id = ?`
+		args = append(args, turnID)
+	}
+
+	var count int
+	if err := idx.db.QueryRow(query, args...).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // GetOrphanMessages returns all messages in a session that aren't linked to a step yet
 func (idx *DB) GetOrphanMessages(sessionID string) ([]Message, error) {
 	return idx.GetAllPendingMessages(sessionID)

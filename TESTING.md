@@ -19,7 +19,7 @@ export RGT=/path/to/re_gent/rgt
 ```bash
 tmp=$(mktemp -d)
 cd "$tmp"
-"$RGT" init --agent both
+printf '\n\n' | "$RGT" init --agent both
 
 "$RGT" status
 "$RGT" sessions
@@ -30,6 +30,7 @@ Expected results:
 - `.regent/` exists.
 - `.claude/settings.json` contains `UserPromptSubmit`, `Stop`, and `PostToolBatch`.
 - `.codex/config.toml` contains `SessionStart`, `UserPromptSubmit`, `PostToolUse`, and `Stop`.
+- `.codex/config.toml` has `[features] codex_hooks = true`.
 - `rgt sessions` reports no sessions until an agent hook fires.
 
 Codex may ask you to trust the project and hook commands the first time it loads the project-local config.

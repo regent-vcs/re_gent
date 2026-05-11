@@ -150,6 +150,42 @@ func TestRunToolBatchHook_MarshalsStringResponseAsJSON(t *testing.T) {
 	}
 }
 
+func TestRunToolBatchHook_PreservesStructuredResponse(t *testing.T) {
+	root := t.TempDir()
+	if _, err := store.Init(root); err != nil {
+		t.Fatalf("init store: %v", err)
+	}
+
+	runToolBatchPayload(t, fmt.Sprintf(`{"session_id":"claude-session","cwd":%q,"tool_calls":[{"tool_name":"Read","tool_use_id":"tool-1","tool_input":{"file_path":"notes.txt"},"tool_response":[{"type":"text","text":"ok"}]}]}`, root))
+
+	s, err := store.Open(filepath.Join(root, ".regent"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	idx, err := index.Open(s)
+	if err != nil {
+		t.Fatalf("open index: %v", err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	sessionID := "claude_code:" + url.PathEscape("claude-session")
+	messages, err := idx.GetAllPendingMessages(sessionID)
+	if err != nil {
+		t.Fatalf("pending messages: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected call/result messages, got %d", len(messages))
+	}
+
+	resultData, err := s.ReadBlob(store.Hash(messages[1].ToolOutput))
+	if err != nil {
+		t.Fatalf("read tool output: %v", err)
+	}
+	if string(resultData) != `[{"type":"text","text":"ok"}]` {
+		t.Fatalf("tool response blob = %s", resultData)
+	}
+}
+
 func runCodexPayload(t *testing.T, payload string) {
 	t.Helper()
 	runWithStdin(t, payload, func() error {

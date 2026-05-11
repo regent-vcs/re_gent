@@ -261,6 +261,134 @@ func (idx *DB) UpsertSession(update SessionUpdate) error {
 	return nil
 }
 
+// RenameSession moves index rows from an older session ID to a canonical ID.
+func (idx *DB) RenameSession(oldID, newID, origin string) (bool, error) {
+	if oldID == "" {
+		return false, fmt.Errorf("old session id is required")
+	}
+	if newID == "" {
+		return false, fmt.Errorf("new session id is required")
+	}
+	if oldID == newID {
+		return false, nil
+	}
+
+	tx, err := idx.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	changed := false
+	oldSessionExists, err := sessionExists(tx, oldID)
+	if err != nil {
+		return false, fmt.Errorf("check old session: %w", err)
+	}
+	newSessionExists, err := sessionExists(tx, newID)
+	if err != nil {
+		return false, fmt.Errorf("check new session: %w", err)
+	}
+
+	if oldSessionExists && !newSessionExists {
+		result, err := tx.Exec(`
+			UPDATE sessions
+			SET id = ?, origin = COALESCE(NULLIF(?, ''), origin)
+			WHERE id = ?
+		`, newID, origin, oldID)
+		if err != nil {
+			return false, fmt.Errorf("rename session row: %w", err)
+		}
+		changed = rowsChanged(result) || changed
+	} else if oldSessionExists {
+		_, err := tx.Exec(`
+			UPDATE sessions
+			SET
+				origin = COALESCE(NULLIF(origin, ''), NULLIF(?, ''), origin),
+				started_at = MIN(started_at, (SELECT started_at FROM sessions WHERE id = ?)),
+				last_seen_at = MAX(last_seen_at, (SELECT last_seen_at FROM sessions WHERE id = ?)),
+				head_step_id = COALESCE(head_step_id, (SELECT head_step_id FROM sessions WHERE id = ?)),
+				model = COALESCE(NULLIF(model, ''), (SELECT model FROM sessions WHERE id = ?)),
+				permission_mode = COALESCE(NULLIF(permission_mode, ''), (SELECT permission_mode FROM sessions WHERE id = ?)),
+				transcript_path = COALESCE(NULLIF(transcript_path, ''), (SELECT transcript_path FROM sessions WHERE id = ?)),
+				forked_from_session = COALESCE(forked_from_session, (SELECT forked_from_session FROM sessions WHERE id = ?)),
+				forked_from_step = COALESCE(forked_from_step, (SELECT forked_from_step FROM sessions WHERE id = ?)),
+				fork_detected_at = COALESCE(fork_detected_at, (SELECT fork_detected_at FROM sessions WHERE id = ?))
+			WHERE id = ?
+		`, origin, oldID, oldID, oldID, oldID, oldID, oldID, oldID, oldID, oldID, newID)
+		if err != nil {
+			return false, fmt.Errorf("merge session row: %w", err)
+		}
+		result, err := tx.Exec(`DELETE FROM sessions WHERE id = ?`, oldID)
+		if err != nil {
+			return false, fmt.Errorf("delete old session row: %w", err)
+		}
+		changed = rowsChanged(result) || changed
+	}
+
+	for _, stmt := range []string{
+		`UPDATE steps SET session_id = ? WHERE session_id = ?`,
+		`UPDATE messages SET session_id = ? WHERE session_id = ?`,
+		`UPDATE sessions SET forked_from_session = ? WHERE forked_from_session = ?`,
+	} {
+		result, err := tx.Exec(stmt, newID, oldID)
+		if err != nil {
+			return false, fmt.Errorf("rename session references: %w", err)
+		}
+		changed = rowsChanged(result) || changed
+	}
+
+	result, err := tx.Exec(`
+		INSERT OR IGNORE INTO session_transcript (session_id, last_message_id, last_transcript_hash)
+		SELECT ?, last_message_id, last_transcript_hash
+		FROM session_transcript
+		WHERE session_id = ?
+	`, newID, oldID)
+	if err != nil {
+		return false, fmt.Errorf("copy session transcript: %w", err)
+	}
+	changed = rowsChanged(result) || changed
+	result, err = tx.Exec(`DELETE FROM session_transcript WHERE session_id = ?`, oldID)
+	if err != nil {
+		return false, fmt.Errorf("delete old session transcript: %w", err)
+	}
+	changed = rowsChanged(result) || changed
+
+	result, err = tx.Exec(`
+		INSERT OR IGNORE INTO jsonl_snapshots (session_id, captured_at, jsonl_blob)
+		SELECT ?, captured_at, jsonl_blob
+		FROM jsonl_snapshots
+		WHERE session_id = ?
+	`, newID, oldID)
+	if err != nil {
+		return false, fmt.Errorf("copy jsonl snapshots: %w", err)
+	}
+	changed = rowsChanged(result) || changed
+	result, err = tx.Exec(`DELETE FROM jsonl_snapshots WHERE session_id = ?`, oldID)
+	if err != nil {
+		return false, fmt.Errorf("delete old jsonl snapshots: %w", err)
+	}
+	changed = rowsChanged(result) || changed
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return changed, nil
+}
+
+func sessionExists(tx *sql.Tx, sessionID string) (bool, error) {
+	var count int
+	err := tx.QueryRow(`SELECT COUNT(*) FROM sessions WHERE id = ?`, sessionID).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func rowsChanged(result sql.Result) bool {
+	rows, err := result.RowsAffected()
+	return err == nil && rows > 0
+}
+
 // IndexStep indexes a step and its files
 func (idx *DB) IndexStep(stepHash store.Hash, step *store.Step, tree *store.Tree) error {
 	tx, err := idx.db.Begin()

@@ -35,7 +35,7 @@ These three turn the agent's activity into something inspectable and shareable. 
 - **Project name**: re_gent
 - **CLI binary**: `rgt` (3 chars, ergonomic)
 - **Storage directory**: `.regent/` at the project root (analogous to `.git/`)
-- **License (planned)**: MIT — open source from commit zero
+- **License**: Apache 2.0 — see [`LICENSE`](./LICENSE)
 
 ---
 
@@ -50,7 +50,7 @@ Four primitive object types, three immutable and content-addressed:
 
 Steps form a **DAG** through `parent` pointers. Each session has its own ref (its own branch tip). The DAG itself is shared across sessions: common ancestors dedupe, divergent work lives on parallel branches, sub-agents (Task tool) get their own chains with merge points.
 
-The workspace on disk is **shared across sessions** by default. re_gent records what each session *thought was happening*; conflict detection happens at write time when two sessions touch the same file. Worktrees-per-session exist as an opt-in escape hatch when true physical isolation is needed.
+The workspace on disk is **shared across sessions** by default. re_gent records each session's view of the workspace, but it does not currently isolate writes or resolve same-file conflicts between live agents. Use separate directories, git worktrees, or normal Git workflows when physical isolation matters.
 
 ---
 
@@ -74,7 +74,7 @@ Faster than SHA-256, parallelizable, modern security margin. Pure-Go implementat
 
 ### SQLite as derived index, object store as source of truth
 
-The object store on disk is canonical and rebuildable. SQLite is purely a derived index for fast queries (`log` filtered by session, `blame` lookups by path, "files touched in session X"). If the index ever corrupts, `rgt reindex` rebuilds it from the objects. This separation means:
+The object store and refs on disk are canonical. SQLite is a derived index for fast queries (`log` filtered by session, `blame` lookups by path, "files touched in session X"). Some hook recovery paths can repair a missing index row for the current head step; a full `rgt reindex` command is still planned. This separation means:
 
 - Storage layer stays simple (just files in `objects/aa/aabbcc...`)
 - Query layer can evolve independently (swap to a different index format without migration)
@@ -84,9 +84,9 @@ The object store on disk is canonical and rebuildable. SQLite is purely a derive
 
 The DAG has multiple tips, one per active session. Refs at `refs/sessions/<origin>:<escaped-session-id>` are independent. Steps from different sessions live in the same object store; common ancestors dedupe naturally.
 
-The disk is **not** isolated per session by default — both Claude Code instances write to `~/myproject/` and re_gent's hooks capture each session's view independently. This matches how people actually run concurrent agents today and avoids forcing a workflow change. Conflict detection happens when two sessions touch the same file; resolution is user-driven.
+The disk is **not** isolated per session by default — multiple Claude Code or Codex sessions can write to the same project directory, and re_gent's hooks capture each session's view independently. This matches how people often run concurrent agents today, but file-level conflict detection and resolution are not implemented yet.
 
-Worktrees-per-session exist as an opt-in (`rgt session new --worktree`) for cases that need true physical isolation: long autonomous runs, sessions with different env/dependency setups, or genuinely contested files.
+Worktrees-per-session remain a planned escape hatch for cases that need true physical isolation: long autonomous runs, sessions with different env/dependency setups, or genuinely contested files.
 
 ### Annotated-blob blame (compute at write time, not query time)
 
@@ -126,7 +126,7 @@ Other agent tools can add small adapters that produce the same internal capture 
 | **Hook** | The integration point with the agent host. Claude and Codex adapters normalize host payloads into shared capture events. |
 | **Object store** | The content-addressed blob directory at `.regent/objects/`. Source of truth. |
 | **Index** | The derived SQLite database at `.regent/index.db`. Rebuildable from the object store. |
-| **Worktree** | An optional per-session physical working directory, for the rare cases needing true filesystem isolation between concurrent sessions. |
+| **Worktree** | A planned per-session physical working directory for cases needing true filesystem isolation between concurrent sessions. |
 
 ---
 
@@ -189,7 +189,7 @@ These are real design tensions we have not yet resolved. Flag them when relevant
 
 1. **Bash side-effect attribution.** A single `Bash` tool call can produce arbitrary file changes. We snapshot after, so files are captured correctly, but blame becomes coarse: every line introduced by `find . -delete` or a multi-file `sed -i` gets attributed to a single step. Acceptable for v0; may want finer-grained tracking later (filesystem watcher during the bash exec).
 
-2. **Sub-agent lineage.** Codex sub-agents and forked threads are captured as separate sessions today. Schema supports `secondary_parent`, but parent linking is not implemented.
+2. **Sub-agent lineage.** Codex sub-agents and forked threads are captured as separate sessions today. The schema records session fork metadata, but secondary-parent step linking is not implemented.
 
 3. **Conversation rewind into the live agent.** `rgt rewind` is not implemented. When it is, the file state and live agent transcript semantics must be designed together.
 

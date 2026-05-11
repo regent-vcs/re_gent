@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/regent-vcs/regent/internal/index"
 	"github.com/regent-vcs/regent/internal/store"
 )
 
@@ -244,6 +246,267 @@ func TestRecorder_TurnIsolationAndMultiToolCauses(t *testing.T) {
 	}
 }
 
+func TestRecorder_DuplicateToolUseIsIdempotent(t *testing.T) {
+	root := t.TempDir()
+	if _, err := store.Init(root); err != nil {
+		t.Fatalf("init store: %v", err)
+	}
+
+	recorder, ok, err := Open(root)
+	if err != nil {
+		t.Fatalf("open recorder: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected initialized recorder")
+	}
+	defer func() { _ = recorder.Close() }()
+
+	meta := SessionMetadata{SessionID: "codex-session", Origin: OriginCodexCLI}
+	sessionID := canonicalSessionID(OriginCodexCLI, meta.SessionID)
+	if err := recorder.RecordUserPrompt(UserPrompt{SessionMetadata: meta, TurnID: "turn-dup", Prompt: "write file"}); err != nil {
+		t.Fatalf("record prompt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "dup.txt"), []byte("dup\n"), 0o644); err != nil {
+		t.Fatalf("write dup: %v", err)
+	}
+	tool := ToolUse{
+		SessionMetadata: meta,
+		TurnID:          "turn-dup",
+		ToolName:        "Write",
+		ToolUseID:       "tool-dup",
+		ToolInput:       json.RawMessage(`{"file_path":"dup.txt","content":"dup\n"}`),
+		ToolResponse:    json.RawMessage(`{"ok":true}`),
+	}
+	if err := recorder.RecordToolUse(tool); err != nil {
+		t.Fatalf("record tool: %v", err)
+	}
+	if err := recorder.RecordToolUse(tool); err != nil {
+		t.Fatalf("record duplicate tool: %v", err)
+	}
+	if err := recorder.RecordAssistantAndFinalize(AssistantResponse{SessionMetadata: meta, TurnID: "turn-dup", LastAssistantMessage: "done"}); err != nil {
+		t.Fatalf("finalize: %v", err)
+	}
+
+	steps, err := recorder.Index.ListSteps(sessionID, 10)
+	if err != nil {
+		t.Fatalf("list steps: %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("expected one step, got %d", len(steps))
+	}
+	step, err := recorder.Store.ReadStep(steps[0].Hash)
+	if err != nil {
+		t.Fatalf("read step: %v", err)
+	}
+	if len(step.Causes) != 1 {
+		t.Fatalf("expected duplicate tool delivery to produce one cause, got %d", len(step.Causes))
+	}
+	messages, err := recorder.Index.GetMessagesForStep(steps[0].Hash)
+	if err != nil {
+		t.Fatalf("linked messages: %v", err)
+	}
+	if len(messages) != 4 {
+		t.Fatalf("expected user/call/result/assistant messages, got %d", len(messages))
+	}
+}
+
+func TestRecorder_RecoversHeadStepMissingIndexAndLinks(t *testing.T) {
+	root := t.TempDir()
+	if _, err := store.Init(root); err != nil {
+		t.Fatalf("init store: %v", err)
+	}
+
+	recorder, ok, err := Open(root)
+	if err != nil {
+		t.Fatalf("open recorder: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected initialized recorder")
+	}
+	defer func() { _ = recorder.Close() }()
+
+	meta := SessionMetadata{SessionID: "codex-session", Origin: OriginCodexCLI}
+	sessionID := canonicalSessionID(OriginCodexCLI, meta.SessionID)
+	turnID := "turn-recover"
+	if err := recorder.RecordUserPrompt(UserPrompt{SessionMetadata: meta, TurnID: turnID, Prompt: "write file"}); err != nil {
+		t.Fatalf("record prompt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "recover.txt"), []byte("recover\n"), 0o644); err != nil {
+		t.Fatalf("write recover: %v", err)
+	}
+	if err := recorder.RecordToolUse(ToolUse{
+		SessionMetadata: meta,
+		TurnID:          turnID,
+		ToolName:        "Write",
+		ToolUseID:       "tool-recover",
+		ToolInput:       json.RawMessage(`{"file_path":"recover.txt","content":"recover\n"}`),
+		ToolResponse:    json.RawMessage(`{"ok":true}`),
+	}); err != nil {
+		t.Fatalf("record tool: %v", err)
+	}
+	if err := recorder.Index.AppendMessage(index.Message{
+		ID:          "assistant-recover",
+		SessionID:   sessionID,
+		TurnID:      turnID,
+		Timestamp:   time.Now().UnixNano(),
+		MessageType: "assistant",
+		ContentText: "done",
+	}); err != nil {
+		t.Fatalf("append assistant: %v", err)
+	}
+
+	treeHash, err := snapshotWorkspace(recorder.Store, root)
+	if err != nil {
+		t.Fatalf("snapshot workspace: %v", err)
+	}
+	step := &store.Step{
+		Tree:           treeHash,
+		Cause:          store.Cause{ToolName: "Write", ToolUseID: "tool-recover"},
+		Causes:         []store.Cause{{ToolName: "Write", ToolUseID: "tool-recover"}},
+		SessionID:      sessionID,
+		Origin:         OriginCodexCLI,
+		TurnID:         turnID,
+		TimestampNanos: time.Now().UnixNano(),
+	}
+	stepHash, err := recorder.Store.WriteStep(step)
+	if err != nil {
+		t.Fatalf("write step: %v", err)
+	}
+	if err := recorder.Store.UpdateRef("sessions/"+sessionID, "", stepHash); err != nil {
+		t.Fatalf("write ref: %v", err)
+	}
+
+	if err := recorder.RecordAssistantAndFinalize(AssistantResponse{SessionMetadata: meta, TurnID: turnID, LastAssistantMessage: "done retry"}); err != nil {
+		t.Fatalf("recover finalize: %v", err)
+	}
+
+	steps, err := recorder.Index.ListSteps(sessionID, 10)
+	if err != nil {
+		t.Fatalf("list steps: %v", err)
+	}
+	if len(steps) != 1 || steps[0].Hash != stepHash {
+		t.Fatalf("expected recovered step %s, got %#v", stepHash, steps)
+	}
+	messages, err := recorder.Index.GetMessagesForStep(stepHash)
+	if err != nil {
+		t.Fatalf("linked messages: %v", err)
+	}
+	if len(messages) != 4 {
+		t.Fatalf("expected existing pending messages linked to recovered step, got %d", len(messages))
+	}
+}
+
+func TestRecorder_RetriesRefConflictAgainstLatestHead(t *testing.T) {
+	root := t.TempDir()
+	if _, err := store.Init(root); err != nil {
+		t.Fatalf("init store: %v", err)
+	}
+
+	recorder, ok, err := Open(root)
+	if err != nil {
+		t.Fatalf("open recorder: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected initialized recorder")
+	}
+	defer func() { _ = recorder.Close() }()
+
+	meta := SessionMetadata{SessionID: "codex-session", Origin: OriginCodexCLI}
+	sessionID := canonicalSessionID(OriginCodexCLI, meta.SessionID)
+	turnID := "turn-retry"
+	if err := recorder.RecordUserPrompt(UserPrompt{SessionMetadata: meta, TurnID: turnID, Prompt: "write file"}); err != nil {
+		t.Fatalf("record prompt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "retry.txt"), []byte("retry\n"), 0o644); err != nil {
+		t.Fatalf("write retry: %v", err)
+	}
+	if err := recorder.RecordToolUse(ToolUse{
+		SessionMetadata: meta,
+		TurnID:          turnID,
+		ToolName:        "Write",
+		ToolUseID:       "tool-retry",
+		ToolInput:       json.RawMessage(`{"file_path":"retry.txt","content":"retry\n"}`),
+		ToolResponse:    json.RawMessage(`{"ok":true}`),
+	}); err != nil {
+		t.Fatalf("record tool: %v", err)
+	}
+
+	refPath := filepath.Join(root, ".regent", "refs", "sessions", sessionID)
+	lockPath := refPath + ".lock"
+	if err := os.MkdirAll(filepath.Dir(refPath), 0o755); err != nil {
+		t.Fatalf("mkdir refs: %v", err)
+	}
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatalf("create lock: %v", err)
+	}
+	defer func() {
+		_ = lockFile.Close()
+		_ = os.Remove(lockPath)
+	}()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- recorder.RecordAssistantAndFinalize(AssistantResponse{
+			SessionMetadata:      meta,
+			TurnID:               turnID,
+			LastAssistantMessage: "done",
+		})
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	treeHash, err := snapshotWorkspace(recorder.Store, root)
+	if err != nil {
+		t.Fatalf("snapshot workspace: %v", err)
+	}
+	competingStep := &store.Step{
+		Tree:           treeHash,
+		Cause:          store.Cause{ToolName: "Write", ToolUseID: "tool-competing"},
+		Causes:         []store.Cause{{ToolName: "Write", ToolUseID: "tool-competing"}},
+		SessionID:      sessionID,
+		Origin:         OriginCodexCLI,
+		TurnID:         "turn-competing",
+		TimestampNanos: time.Now().UnixNano(),
+	}
+	competingHash, err := recorder.Store.WriteStep(competingStep)
+	if err != nil {
+		t.Fatalf("write competing step: %v", err)
+	}
+	if err := os.WriteFile(refPath, []byte(string(competingHash)+"\n"), 0o644); err != nil {
+		t.Fatalf("write competing ref: %v", err)
+	}
+	if err := lockFile.Close(); err != nil {
+		t.Fatalf("close lock: %v", err)
+	}
+	if err := os.Remove(lockPath); err != nil {
+		t.Fatalf("remove lock: %v", err)
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("finalize after conflict: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for finalize")
+	}
+
+	headHash, err := recorder.Store.ReadRef("sessions/" + sessionID)
+	if err != nil {
+		t.Fatalf("read head ref: %v", err)
+	}
+	headStep, err := recorder.Store.ReadStep(headHash)
+	if err != nil {
+		t.Fatalf("read head step: %v", err)
+	}
+	if headStep.TurnID != turnID {
+		t.Fatalf("head turn = %q, want %q", headStep.TurnID, turnID)
+	}
+	if headStep.Parent != competingHash {
+		t.Fatalf("retried step parent = %s, want latest head %s", headStep.Parent, competingHash)
+	}
+}
+
 func TestRecorder_MissingCodexTurnIDRejected(t *testing.T) {
 	root := t.TempDir()
 	if _, err := store.Init(root); err != nil {
@@ -268,13 +531,92 @@ func TestRecorder_MissingCodexTurnIDRejected(t *testing.T) {
 	}
 }
 
-func TestCanonicalSessionID_IdempotentAndEscapesPathSeparators(t *testing.T) {
+func TestCanonicalSessionID_EscapesRawIDWithoutPrefixCollision(t *testing.T) {
 	sessionID := canonicalSessionID(OriginCodexCLI, "session/with/slash")
 	if sessionID != "codex_cli:session%2Fwith%2Fslash" {
 		t.Fatalf("canonical session id = %q", sessionID)
 	}
-	if again := canonicalSessionID(OriginCodexCLI, sessionID); again != sessionID {
-		t.Fatalf("canonicalization should be idempotent: %q", again)
+	prefixedRawID := canonicalSessionID(OriginCodexCLI, "codex_cli:abc")
+	if prefixedRawID != "codex_cli:codex_cli%3Aabc" {
+		t.Fatalf("prefixed raw id should not collide with canonical id: %q", prefixedRawID)
+	}
+}
+
+func TestRecorder_AdoptsLegacyRawSessionID(t *testing.T) {
+	root := t.TempDir()
+	if _, err := store.Init(root); err != nil {
+		t.Fatalf("init store: %v", err)
+	}
+
+	recorder, ok, err := Open(root)
+	if err != nil {
+		t.Fatalf("open recorder: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected initialized recorder")
+	}
+	defer func() { _ = recorder.Close() }()
+
+	legacySessionID := "claude-legacy"
+	legacyBlob, err := recorder.Store.WriteBlob([]byte("legacy\n"))
+	if err != nil {
+		t.Fatalf("write legacy blob: %v", err)
+	}
+	legacyTree := &store.Tree{Entries: []store.TreeEntry{{Path: "legacy.txt", Blob: legacyBlob}}}
+	legacyTreeHash, err := recorder.Store.WriteTree(legacyTree)
+	if err != nil {
+		t.Fatalf("write legacy tree: %v", err)
+	}
+	legacyStep := &store.Step{
+		Tree:           legacyTreeHash,
+		Cause:          store.Cause{ToolName: "Write", ToolUseID: "legacy-tool"},
+		SessionID:      legacySessionID,
+		TimestampNanos: 1,
+	}
+	legacyStepHash, err := recorder.Store.WriteStep(legacyStep)
+	if err != nil {
+		t.Fatalf("write legacy step: %v", err)
+	}
+	if err := recorder.Index.IndexStep(legacyStepHash, legacyStep, legacyTree); err != nil {
+		t.Fatalf("index legacy step: %v", err)
+	}
+	if err := recorder.Store.UpdateRef("sessions/"+legacySessionID, "", legacyStepHash); err != nil {
+		t.Fatalf("write legacy ref: %v", err)
+	}
+
+	meta := SessionMetadata{SessionID: legacySessionID, Origin: OriginClaudeCode}
+	canonicalID := canonicalSessionID(OriginClaudeCode, legacySessionID)
+	if err := recorder.RecordUserPrompt(UserPrompt{SessionMetadata: meta, Prompt: "continue"}); err != nil {
+		t.Fatalf("record prompt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "next.txt"), []byte("next\n"), 0o644); err != nil {
+		t.Fatalf("write next file: %v", err)
+	}
+	if err := recorder.RecordToolUse(ToolUse{
+		SessionMetadata: meta,
+		ToolName:        "Write",
+		ToolUseID:       "next-tool",
+		ToolInput:       json.RawMessage(`{"file_path":"next.txt","content":"next\n"}`),
+		ToolResponse:    json.RawMessage(`"ok"`),
+	}); err != nil {
+		t.Fatalf("record tool: %v", err)
+	}
+	if err := recorder.RecordAssistantAndFinalize(AssistantResponse{SessionMetadata: meta, LastAssistantMessage: "done"}); err != nil {
+		t.Fatalf("finalize: %v", err)
+	}
+
+	steps, err := recorder.Index.ListSteps(canonicalID, 10)
+	if err != nil {
+		t.Fatalf("list canonical steps: %v", err)
+	}
+	if len(steps) != 2 {
+		t.Fatalf("expected legacy and new steps under canonical id, got %d", len(steps))
+	}
+	if steps[0].ParentHash != legacyStepHash {
+		t.Fatalf("new step parent = %s, want legacy step %s", steps[0].ParentHash, legacyStepHash)
+	}
+	if _, err := recorder.Store.ReadRef("sessions/" + canonicalID); err != nil {
+		t.Fatalf("canonical ref was not adopted: %v", err)
 	}
 }
 

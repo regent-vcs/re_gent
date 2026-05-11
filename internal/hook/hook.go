@@ -103,7 +103,7 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 	}
 
 	// 14. Index the step (best effort - derived index)
-	// If indexing fails, refs/objects are still consistent and user can run `rgt reindex`.
+	// If indexing fails, refs/objects remain the source of truth.
 	if err := idx.IndexStep(stepHash, stepWithoutTree, tree); err != nil {
 		// Log error but don't fail hook - refs/objects are source of truth
 		_ = logError(s, fmt.Errorf("index step (non-fatal): %w", err))

@@ -21,6 +21,8 @@ import (
 const (
 	OriginClaudeCode = "claude_code"
 	OriginCodexCLI   = "codex_cli"
+
+	maxRefUpdateAttempts = 8
 )
 
 var messageCounter atomic.Uint64
@@ -42,6 +44,7 @@ type SessionMetadata struct {
 	Model          string
 	PermissionMode string
 	TranscriptPath string
+	externalID     string
 }
 
 type UserPrompt struct {
@@ -98,7 +101,14 @@ func (r *Recorder) UpsertSession(meta SessionMetadata) error {
 	if err != nil {
 		return err
 	}
+	if err := r.adoptLegacySession(session); err != nil {
+		return err
+	}
 
+	return r.upsertNormalizedSession(session)
+}
+
+func (r *Recorder) upsertNormalizedSession(session SessionMetadata) error {
 	return r.Index.UpsertSession(index.SessionUpdate{
 		ID:             session.SessionID,
 		Origin:         session.Origin,
@@ -113,7 +123,10 @@ func (r *Recorder) RecordUserPrompt(event UserPrompt) error {
 	if err != nil {
 		return err
 	}
-	if err := r.UpsertSession(session); err != nil {
+	if err := r.adoptLegacySession(session); err != nil {
+		return err
+	}
+	if err := r.upsertNormalizedSession(session); err != nil {
 		return err
 	}
 
@@ -147,8 +160,18 @@ func (r *Recorder) RecordToolUse(event ToolUse) error {
 	if len(event.ToolResponse) > 0 && !json.Valid(event.ToolResponse) {
 		return fmt.Errorf("tool response must be valid JSON")
 	}
-	if err := r.UpsertSession(session); err != nil {
+	if err := r.adoptLegacySession(session); err != nil {
 		return err
+	}
+	if err := r.upsertNormalizedSession(session); err != nil {
+		return err
+	}
+	seen, err := r.toolUseExists(session.SessionID, scope, event.ToolUseID)
+	if err != nil {
+		return fmt.Errorf("check existing tool use: %w", err)
+	}
+	if seen {
+		return nil
 	}
 
 	inputHash, err := r.Store.WriteBlob(event.ToolInput)
@@ -201,7 +224,10 @@ func (r *Recorder) RecordAssistantAndFinalize(event AssistantResponse) error {
 	if err != nil {
 		return err
 	}
-	if err := r.UpsertSession(session); err != nil {
+	if err := r.adoptLegacySession(session); err != nil {
+		return err
+	}
+	if err := r.upsertNormalizedSession(session); err != nil {
 		return err
 	}
 
@@ -212,11 +238,11 @@ func (r *Recorder) RecordAssistantAndFinalize(event AssistantResponse) error {
 		}
 		if ok {
 			if err := r.indexAndLinkStep(existingStep, session.SessionID, scope); err != nil {
-				logDebug(r.Store, fmt.Sprintf("recover existing turn %s: %v", scope.id, err))
+				logHookError(r.Store, fmt.Sprintf("recover existing turn %s: %v", scope.id, err))
 			}
 			if session.TranscriptPath != "" {
 				if err := r.ArchiveTranscript(session.SessionID, session.TranscriptPath); err != nil {
-					logDebug(r.Store, fmt.Sprintf("archive transcript: %v", err))
+					logHookError(r.Store, fmt.Sprintf("archive transcript: %v", err))
 				}
 			}
 			return nil
@@ -251,7 +277,7 @@ func (r *Recorder) RecordAssistantAndFinalize(event AssistantResponse) error {
 
 	if session.TranscriptPath != "" {
 		if err := r.ArchiveTranscript(session.SessionID, session.TranscriptPath); err != nil {
-			logDebug(r.Store, fmt.Sprintf("archive transcript: %v", err))
+			logHookError(r.Store, fmt.Sprintf("archive transcript: %v", err))
 		}
 	}
 
@@ -272,57 +298,109 @@ func (r *Recorder) ArchiveTranscript(sessionID, transcriptPath string) error {
 	return r.Index.InsertJSONLSnapshot(sessionID, time.Now().UnixNano(), blobHash)
 }
 
+func (r *Recorder) adoptLegacySession(session SessionMetadata) error {
+	if session.externalID == "" || session.externalID == session.SessionID {
+		return nil
+	}
+
+	changed, err := r.Index.RenameSession(session.externalID, session.SessionID, session.Origin)
+	if err != nil {
+		return fmt.Errorf("adopt legacy session index: %w", err)
+	}
+
+	legacyHead, err := r.Store.ReadRef("sessions/" + session.externalID)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			if changed {
+				logDebug(r.Store, fmt.Sprintf("adopted legacy session index %s -> %s", session.externalID, session.SessionID))
+			}
+			return nil
+		}
+		return fmt.Errorf("read legacy session ref: %w", err)
+	}
+
+	if _, err := r.Store.ReadRef("sessions/" + session.SessionID); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("read canonical session ref: %w", err)
+		}
+		if err := r.Store.UpdateRef("sessions/"+session.SessionID, "", legacyHead); err != nil && !errors.Is(err, store.ErrRefConflict) {
+			return fmt.Errorf("write canonical session ref: %w", err)
+		}
+		logDebug(r.Store, fmt.Sprintf("adopted legacy session ref %s -> %s", session.externalID, session.SessionID))
+	}
+	return nil
+}
+
 func (r *Recorder) createStepForTurn(session SessionMetadata, scope turnScope) (store.Hash, error) {
 	sessionID := session.SessionID
-	parentHash, err := r.Store.ReadRef("sessions/" + sessionID)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return "", fmt.Errorf("read session ref: %w", err)
+	for attempt := 0; attempt < maxRefUpdateAttempts; attempt++ {
+		parentHash, err := r.Store.ReadRef("sessions/" + sessionID)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("read session ref: %w", err)
+		}
+
+		messages, err := r.pendingMessages(sessionID, scope)
+		if err != nil {
+			return "", fmt.Errorf("get pending messages: %w", err)
+		}
+
+		causes := causesFromMessages(messages)
+		if len(causes) == 0 {
+			return "", nil
+		}
+
+		treeHash, err := snapshotWorkspace(r.Store, r.CWD)
+		if err != nil {
+			return "", fmt.Errorf("snapshot workspace: %w", err)
+		}
+
+		step := &store.Step{
+			Parent:         parentHash,
+			Tree:           treeHash,
+			Cause:          causes[0],
+			Causes:         causes,
+			SessionID:      sessionID,
+			Origin:         session.Origin,
+			TurnID:         scope.id,
+			TimestampNanos: time.Now().UnixNano(),
+		}
+
+		stepHash, err := r.Store.WriteStep(step)
+		if err != nil {
+			return "", fmt.Errorf("write step: %w", err)
+		}
+
+		if err := computeAndWriteBlame(r.Store, parentHash, stepHash, treeHash); err != nil {
+			logHookError(r.Store, fmt.Sprintf("blame step %s: %v", stepHash, err))
+		}
+
+		if err := r.Store.UpdateRef("sessions/"+sessionID, parentHash, stepHash); err != nil {
+			if errors.Is(err, store.ErrRefConflict) {
+				time.Sleep(refUpdateBackoff(attempt))
+				continue
+			}
+			return "", fmt.Errorf("update ref: %w", err)
+		}
+
+		if err := r.indexAndLinkStep(stepHash, sessionID, scope); err != nil {
+			logHookError(r.Store, fmt.Sprintf("index/link step %s: %v", stepHash, err))
+		}
+
+		return stepHash, nil
 	}
 
-	messages, err := r.pendingMessages(sessionID, scope)
-	if err != nil {
-		return "", fmt.Errorf("get pending messages: %w", err)
-	}
+	return "", fmt.Errorf("update ref: %w", store.ErrRefConflict)
+}
 
-	causes := causesFromMessages(messages)
-	if len(causes) == 0 {
-		return "", nil
+func refUpdateBackoff(attempt int) time.Duration {
+	backoff := 5 * time.Millisecond
+	for i := 0; i < attempt; i++ {
+		backoff *= 2
+		if backoff >= 100*time.Millisecond {
+			return 100 * time.Millisecond
+		}
 	}
-
-	treeHash, err := snapshotWorkspace(r.Store, r.CWD)
-	if err != nil {
-		return "", fmt.Errorf("snapshot workspace: %w", err)
-	}
-
-	step := &store.Step{
-		Parent:         parentHash,
-		Tree:           treeHash,
-		Cause:          causes[0],
-		Causes:         causes,
-		SessionID:      sessionID,
-		Origin:         session.Origin,
-		TurnID:         scope.id,
-		TimestampNanos: time.Now().UnixNano(),
-	}
-
-	stepHash, err := r.Store.WriteStep(step)
-	if err != nil {
-		return "", fmt.Errorf("write step: %w", err)
-	}
-
-	if err := computeAndWriteBlame(r.Store, parentHash, stepHash, treeHash); err != nil {
-		logDebug(r.Store, fmt.Sprintf("blame error: %v", err))
-	}
-
-	if err := r.Store.UpdateRefWithRetry("sessions/"+sessionID, parentHash, stepHash, 8); err != nil {
-		return "", fmt.Errorf("update ref: %w", err)
-	}
-
-	if err := r.indexAndLinkStep(stepHash, sessionID, scope); err != nil {
-		logDebug(r.Store, fmt.Sprintf("index/link step %s: %v", stepHash, err))
-	}
-
-	return stepHash, nil
+	return backoff
 }
 
 func (r *Recorder) existingStepForTurn(sessionID, turnID string) (store.Hash, bool, error) {
@@ -394,6 +472,10 @@ func (r *Recorder) markPendingMessagesProcessed(sessionID string, scope turnScop
 		return r.Index.MarkAllPendingMessagesProcessed(sessionID, processedAt)
 	}
 	return r.Index.MarkPendingMessagesProcessed(sessionID, scope.id, processedAt)
+}
+
+func (r *Recorder) toolUseExists(sessionID string, scope turnScope, toolUseID string) (bool, error) {
+	return r.Index.ToolUseExists(sessionID, scope.id, toolUseID, scope.allTurns)
 }
 
 func causesFromMessages(messages []index.Message) []store.Cause {
@@ -544,25 +626,19 @@ func normalizeSession(meta SessionMetadata) (SessionMetadata, error) {
 	if !isSafeOrigin(origin) {
 		return SessionMetadata{}, fmt.Errorf("invalid origin %q", origin)
 	}
-	if strings.TrimSpace(meta.SessionID) == "" {
+	externalID := strings.TrimSpace(meta.SessionID)
+	if externalID == "" {
 		return SessionMetadata{}, fmt.Errorf("session id is required")
 	}
 
 	meta.Origin = origin
-	meta.SessionID = canonicalSessionID(origin, meta.SessionID)
+	meta.SessionID = canonicalSessionID(origin, externalID)
+	meta.externalID = externalID
 	return meta, nil
 }
 
 func canonicalSessionID(origin, externalID string) string {
-	prefix := origin + ":"
-	if strings.HasPrefix(externalID, prefix) {
-		encodedID := strings.TrimPrefix(externalID, prefix)
-		decodedID, err := url.PathUnescape(encodedID)
-		if err == nil && url.PathEscape(decodedID) == encodedID {
-			return externalID
-		}
-	}
-	return prefix + url.PathEscape(externalID)
+	return origin + ":" + url.QueryEscape(externalID)
 }
 
 func normalizeTurnScope(origin, turnID string) (turnScope, error) {
@@ -600,6 +676,18 @@ func newMessageID(kind string) string {
 
 func logDebug(s *store.Store, msg string) {
 	logPath := filepath.Join(s.Root, "log", "hook-debug.log")
+	_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+
+	fmt.Fprintf(f, "[%s] %s\n", time.Now().Format(time.RFC3339), msg)
+}
+
+func logHookError(s *store.Store, msg string) {
+	logPath := filepath.Join(s.Root, "log", "hook-error.log")
 	_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {

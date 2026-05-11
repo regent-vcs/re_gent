@@ -20,7 +20,7 @@ func TestInstallCodexHook_MergesProjectConfig(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	if err := installCodexHook(root); err != nil {
+	if _, err := installCodexHook(root); err != nil {
 		t.Fatalf("install hook: %v", err)
 	}
 
@@ -37,6 +37,14 @@ func TestInstallCodexHook_MergesProjectConfig(t *testing.T) {
 		t.Fatalf("model was not preserved: %#v", config["model"])
 	}
 
+	features, ok := config["features"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("features missing: %#v", config["features"])
+	}
+	if features["codex_hooks"] != true {
+		t.Fatalf("codex_hooks feature not enabled: %#v", features["codex_hooks"])
+	}
+
 	hooks, ok := config["hooks"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("hooks missing: %#v", config["hooks"])
@@ -45,6 +53,42 @@ func TestInstallCodexHook_MergesProjectConfig(t *testing.T) {
 		if hooks[eventName] == nil {
 			t.Fatalf("hook %s missing", eventName)
 		}
+	}
+}
+
+func TestInstallCodexHook_PreservesExistingFeatures(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, ".codex")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	configPath := filepath.Join(configDir, "config.toml")
+	existing := `
+[features]
+web_search = true
+`
+	if err := os.WriteFile(configPath, []byte(existing), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if _, err := installCodexHook(root); err != nil {
+		t.Fatalf("install hook: %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var config map[string]interface{}
+	if err := toml.Unmarshal(data, &config); err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	features := config["features"].(map[string]interface{})
+	if features["web_search"] != true {
+		t.Fatalf("existing feature was not preserved: %#v", features)
+	}
+	if features["codex_hooks"] != true {
+		t.Fatalf("codex_hooks feature not enabled: %#v", features)
 	}
 }
 
@@ -73,7 +117,7 @@ command = "rgt codex-hook"
 		t.Fatalf("write config: %v", err)
 	}
 
-	if err := installCodexHook(root); err != nil {
+	if _, err := installCodexHook(root); err != nil {
 		t.Fatalf("install hook: %v", err)
 	}
 
@@ -126,7 +170,7 @@ func TestInstallClaudeHook_PreservesExistingHooksAndRemovesLegacyHook(t *testing
 		t.Fatalf("write settings: %v", err)
 	}
 
-	if err := installClaudeHook(root); err != nil {
+	if _, err := installClaudeHook(root); err != nil {
 		t.Fatalf("install hook: %v", err)
 	}
 
@@ -161,10 +205,37 @@ func TestInstallCodexHook_BacksUpInvalidConfig(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	if err := installCodexHook(root); err != nil {
+	result, err := installCodexHook(root)
+	if err != nil {
 		t.Fatalf("install hook: %v", err)
 	}
-	if _, err := os.Stat(configPath + ".backup"); err != nil {
+	if result.BackupPath != configPath+".backup" {
+		t.Fatalf("backup path = %q, want %q", result.BackupPath, configPath+".backup")
+	}
+	if _, err := os.Stat(result.BackupPath); err != nil {
+		t.Fatalf("expected backup: %v", err)
+	}
+}
+
+func TestInstallClaudeHook_BacksUpInvalidSettings(t *testing.T) {
+	root := t.TempDir()
+	claudeDir := filepath.Join(root, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	settingsPath := filepath.Join(claudeDir, "settings.json")
+	if err := os.WriteFile(settingsPath, []byte("{broken\n"), 0o644); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	result, err := installClaudeHook(root)
+	if err != nil {
+		t.Fatalf("install hook: %v", err)
+	}
+	if result.BackupPath != settingsPath+".backup" {
+		t.Fatalf("backup path = %q, want %q", result.BackupPath, settingsPath+".backup")
+	}
+	if _, err := os.Stat(result.BackupPath); err != nil {
 		t.Fatalf("expected backup: %v", err)
 	}
 }

@@ -1,12 +1,12 @@
 ---
-description: View re_gent activity log with full conversation, file changes, and step history. Shows what you asked, how I responded, which tools were used, and what files changed. Use when reviewing session history or understanding what happened in previous steps.
+description: View the re_gent activity log for the default or selected session. The default view shows the conversation timeline and tool calls; file summaries are available with file flags.
 allowed-tools: Bash(rgt log *)
 argument-hint: "[session-id] [flags]"
 ---
 
-Display the re_gent activity log showing captured steps, full conversation (user + assistant + tools), and file changes.
+Display the re_gent activity log showing captured steps, conversation context, and tool calls.
 
-By default shows both conversation and file changes for the most recent session.
+By default, `rgt log` shows the conversation timeline for the most recent session with captured steps. Use `--files-only` for file-change summaries.
 
 Run the log command:
 ```bash
@@ -15,7 +15,7 @@ rgt log $ARGUMENTS
 
 ## Common usage
 
-Show recent steps (conversation + files):
+Show recent conversation:
 ```bash
 rgt log
 ```

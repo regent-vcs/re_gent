@@ -24,7 +24,7 @@ type toolBatchPayload struct {
 		ToolName     string          `json:"tool_name"`
 		ToolInput    json.RawMessage `json:"tool_input"`
 		ToolUseID    string          `json:"tool_use_id"`
-		ToolResponse string          `json:"tool_response"`
+		ToolResponse json.RawMessage `json:"tool_response"`
 	} `json:"tool_calls"`
 	SessionID      string `json:"session_id"`
 	TurnID         string `json:"turn_id"`
@@ -60,17 +60,13 @@ func runToolBatchHook(cmd *cobra.Command, args []string) error {
 		}
 
 		for _, toolCall := range payload.ToolCalls {
-			toolResponse, err := json.Marshal(toolCall.ToolResponse)
-			if err != nil {
-				return fmt.Errorf("marshal tool response: %w", err)
-			}
 			if err := recorder.RecordToolUse(capture.ToolUse{
 				SessionMetadata: meta,
 				TurnID:          payload.TurnID,
 				ToolName:        toolCall.ToolName,
 				ToolUseID:       toolCall.ToolUseID,
 				ToolInput:       toolCall.ToolInput,
-				ToolResponse:    toolResponse,
+				ToolResponse:    toolCall.ToolResponse,
 			}); err != nil {
 				return err
 			}

@@ -18,6 +18,10 @@ import (
 
 type agentTarget string
 
+type hookInstallResult struct {
+	BackupPath string
+}
+
 const (
 	agentAuto   agentTarget = "auto"
 	agentClaude agentTarget = "claude"
@@ -169,14 +173,18 @@ func offerHookInstall(projectRoot string, targets []agentTarget, input *bufio.Re
 	for _, target := range targets {
 		switch target {
 		case agentClaude:
-			if err := installClaudeHook(projectRoot); err != nil {
+			result, err := installClaudeHook(projectRoot)
+			if err != nil {
 				return err
 			}
+			printHookInstallWarning(result)
 			fmt.Printf("  %s Claude Code hooks configured\n", style.Success(""))
 		case agentCodex:
-			if err := installCodexHook(projectRoot); err != nil {
+			result, err := installCodexHook(projectRoot)
+			if err != nil {
 				return err
 			}
+			printHookInstallWarning(result)
 			fmt.Printf("  %s Codex hooks configured\n", style.Success(""))
 		}
 	}
@@ -184,20 +192,30 @@ func offerHookInstall(projectRoot string, targets []agentTarget, input *bufio.Re
 	return nil
 }
 
-func installClaudeHook(projectRoot string) error {
+func printHookInstallWarning(result hookInstallResult) {
+	if result.BackupPath == "" {
+		return
+	}
+	fmt.Printf("  %s Existing hook config was invalid; backed up to %s before rewriting\n", style.Warning(""), result.BackupPath)
+}
+
+func installClaudeHook(projectRoot string) (hookInstallResult, error) {
+	var result hookInstallResult
 	claudeDir := filepath.Join(projectRoot, ".claude")
 	settingsPath := filepath.Join(claudeDir, "settings.json")
 
 	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
-		return fmt.Errorf("create .claude directory: %w", err)
+		return result, fmt.Errorf("create .claude directory: %w", err)
 	}
 
 	settings := map[string]interface{}{}
 	if data, err := os.ReadFile(settingsPath); err == nil && len(strings.TrimSpace(string(data))) > 0 {
 		if err := json.Unmarshal(data, &settings); err != nil {
-			if err := backupFile(settingsPath); err != nil {
-				return fmt.Errorf("backup invalid Claude settings: %w", err)
+			backupPath, err := backupFile(settingsPath)
+			if err != nil {
+				return result, fmt.Errorf("backup invalid Claude settings: %w", err)
 			}
+			result.BackupPath = backupPath
 			settings = map[string]interface{}{}
 		}
 	}
@@ -215,29 +233,32 @@ func installClaudeHook(projectRoot string) error {
 
 	output, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal Claude settings: %w", err)
+		return result, fmt.Errorf("marshal Claude settings: %w", err)
 	}
 	if err := os.WriteFile(settingsPath, output, 0o644); err != nil {
-		return fmt.Errorf("write Claude settings: %w", err)
+		return result, fmt.Errorf("write Claude settings: %w", err)
 	}
 
-	return nil
+	return result, nil
 }
 
-func installCodexHook(projectRoot string) error {
+func installCodexHook(projectRoot string) (hookInstallResult, error) {
+	var result hookInstallResult
 	codexDir := filepath.Join(projectRoot, ".codex")
 	configPath := filepath.Join(codexDir, "config.toml")
 
 	if err := os.MkdirAll(codexDir, 0o755); err != nil {
-		return fmt.Errorf("create .codex directory: %w", err)
+		return result, fmt.Errorf("create .codex directory: %w", err)
 	}
 
 	config := map[string]interface{}{}
 	if data, err := os.ReadFile(configPath); err == nil && len(strings.TrimSpace(string(data))) > 0 {
 		if err := toml.Unmarshal(data, &config); err != nil {
-			if err := backupFile(configPath); err != nil {
-				return fmt.Errorf("backup invalid Codex config: %w", err)
+			backupPath, err := backupFile(configPath)
+			if err != nil {
+				return result, fmt.Errorf("backup invalid Codex config: %w", err)
 			}
+			result.BackupPath = backupPath
 			config = map[string]interface{}{}
 		}
 	}
@@ -251,16 +272,26 @@ func installCodexHook(projectRoot string) error {
 	for _, eventName := range []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop"} {
 		mergeHookCommand(hooks, eventName, codexHookCommand)
 	}
+	enableCodexHooksFeature(config)
 
 	output, err := toml.Marshal(config)
 	if err != nil {
-		return fmt.Errorf("marshal Codex config: %w", err)
+		return result, fmt.Errorf("marshal Codex config: %w", err)
 	}
 	if err := os.WriteFile(configPath, output, 0o644); err != nil {
-		return fmt.Errorf("write Codex config: %w", err)
+		return result, fmt.Errorf("write Codex config: %w", err)
 	}
 
-	return nil
+	return result, nil
+}
+
+func enableCodexHooksFeature(config map[string]interface{}) {
+	features, _ := config["features"].(map[string]interface{})
+	if features == nil {
+		features = map[string]interface{}{}
+		config["features"] = features
+	}
+	features["codex_hooks"] = true
 }
 
 func mergeHookCommand(hooks map[string]interface{}, eventName, command string) {
@@ -479,12 +510,14 @@ func installSkills(skillsDir string) error {
 func skillContents() map[string]string {
 	return map[string]string{
 		"log": `---
-description: View re_gent activity log with conversation, file changes, and step history. Use when reviewing session history or understanding what happened in previous steps.
+description: View the re_gent activity log for the default or selected session. The default view shows the conversation timeline and tool calls; file summaries are available with file flags.
 allowed-tools: Bash(rgt log *)
 argument-hint: "[session-id] [flags]"
 ---
 
 Display the re_gent activity log.
+
+By default, ` + "`rgt log`" + ` shows the conversation timeline for the most recent session with captured steps. Use ` + "`--files-only`" + ` for file-change summaries.
 
 Run:
 ` + "```bash\nrgt log $ARGUMENTS\n```" + `
@@ -560,8 +593,9 @@ func confirmedDefaultYes(input *bufio.Reader) (bool, error) {
 	return response == "" || response == "y" || response == "yes", nil
 }
 
-func backupFile(path string) error {
-	return os.Rename(path, path+".backup")
+func backupFile(path string) (string, error) {
+	backupPath := path + ".backup"
+	return backupPath, os.Rename(path, backupPath)
 }
 
 func pathExists(path string) bool {

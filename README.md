@@ -68,32 +68,29 @@ That's it. Your agent activity is now auditable.
 ```bash
 $ rgt log
 
-Step a1b2c3d  |  2 min ago  |  Tool: Edit
-│ File: src/handler.go
-│ Added error handling to request handler
-│ + 5 lines, - 2 lines
+Session: codex_cli:codex-session (2 steps, 3m elapsed)
 
-Step d4e5f6g  |  5 min ago  |  Tool: Write
-│ File: tests/handler_test.go
-│ Created unit tests for handler
-│ + 23 lines
+* a1b2c3d4 • 14:30:21
+  Human: Add error handling to the request handler
+    ↓
+    Agent: I'll update the handler and add coverage.
+      └─ Edit (file_path: src/handler.go)
 
-Step f8g9h0i  |  8 min ago  |  Tool: Bash
-│ Command: go mod tidy
-│ Cleaned up dependencies
+* d4e5f6a1 • 14:33:12
+  Human: Run the tests
+    ↓
+    Agent: The focused tests pass.
+      └─ Bash (command: go test ./...)
 ```
+
+Use `rgt log --files-only` for a file-change summary, or `rgt log --json` for machine-readable output.
 
 ### Blame: which prompt wrote this line?
 
 ```bash
 $ rgt blame src/handler.go:42
 
-Line 42: func handleRequest(w http.ResponseWriter, r *http.Request) {
-
-Step:    a1b2c3d4e5f6
-Session: claude-20260502-143021
-Tool:    Edit
-Prompt:  "Add error handling to the request handler"
+a1b2c3d4 2026-05-02 14:30:21 Edit       │   42 │ func handleRequest(w http.ResponseWriter, r *http.Request) {
 ```
 
 ### Track multiple concurrent sessions
@@ -101,11 +98,20 @@ Prompt:  "Add error handling to the request handler"
 ```bash
 $ rgt sessions
 
-Active Sessions:
-claude-20260502-143021  |  3 steps  |  Last: 2 min ago
-claude-20260502-091534  |  7 steps  |  Last: 2 hours ago
+Total sessions: 2
 
-$ rgt log --session claude-20260502-143021
+Session: codex_cli:codex-session
+  Origin:     codex_cli
+  Model:      gpt-5.5
+  Last seen:  2026-05-02 14:33:12
+  Head:       d4e5f6a1b2c3d4e5
+
+Session: claude_code:claude-session
+  Origin:     claude_code
+  Last seen:  2026-05-02 13:12:07
+  Head:       a1b2c3d4e5f6a1b2
+
+$ rgt log --session codex_cli:codex-session
 # Filter history by session
 ```
 
@@ -114,25 +120,27 @@ $ rgt log --session claude-20260502-143021
 ```bash
 $ rgt show a1b2c3d
 
-Step a1b2c3d4e5f6
-Parent: d4e5f6g7h8i9
-Session: claude-20260502-143021
+Step: a1b2c3d4e5f6a1b2
 Time: 2026-05-02 14:30:21
+Session: codex_cli:codex-session
+Origin: codex_cli
+Turn: turn-1
 
 Tool: Edit
-File: src/handler.go
+Name: Edit
+Tool Use ID: call_1
 
-Changes:
-+ func handleRequest(w http.ResponseWriter, r *http.Request) {
-+     if r.Method != "GET" {
-+         http.Error(w, "Method not allowed", 405)
-+         return
-+     }
-- func handleRequest(w http.ResponseWriter, r *http.Request) {
+Arguments
+{
+  "file_path": "src/handler.go"
+}
 
 Conversation:
-User: "Add error handling to reject non-GET requests"
-Assistant: "I'll add method validation to the handler..."
+User:
+Add error handling to reject non-GET requests
+
+Assistant:
+I'll add method validation to the handler.
 ```
 
 ---
@@ -312,7 +320,7 @@ npm install && npm run compile
 
 - **Content-Addressed Storage** — BLAKE3 hashing, automatic deduplication
 - **Fast Queries** — SQLite index, sub-10ms lookups
-- **Per-Session DAG** — Concurrent agents, no conflicts
+- **Per-Session DAG** — Independent refs for each captured agent session
 - **Conversation Tracking** — Survives `/compact` and `/clear`
 - **Hook-Driven** — Transparent Claude Code and Codex integration
 - **Concurrency-Safe** — CAS refs, ACID transactions
@@ -328,7 +336,7 @@ npm install && npm run compile
 | **Tracks agent activity** | ❌ | ✅ |
 | **Blame with prompt** | ❌ | ✅ |
 | **Conversation history** | ❌ | ✅ |
-| **Concurrent sessions** | ⚠️ conflicts | ✅ separate branches |
+| **Concurrent sessions** | ⚠️ shared workspace conflicts | ✅ separate captured session refs |
 | **Purpose** | Developer VCS | Agent audit trail |
 
 **re_gent complements git, doesn't replace it.** Use both.
