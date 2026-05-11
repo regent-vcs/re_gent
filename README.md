@@ -10,7 +10,7 @@
   <br />
   <h1>Version-Control for AI Agents</h1>
   <p>
-    Version control for AI agent activity. Track what your agent did, which prompt wrote each line, and rewind when things break.
+    Version control for AI agent activity. Track what your agent did and which prompt wrote each line.
   </p>
 
 [![Star on GitHub](https://img.shields.io/github/stars/regent-vcs/regent?style=for-the-badge&logo=github&color=gold)](https://github.com/regent-vcs/regent)
@@ -21,6 +21,7 @@
 [![Contributions Welcome](https://img.shields.io/badge/Contributions-Welcome-10b981?style=for-the-badge&logo=github)](CONTRIBUTING.md)
 [![Claude Code Compatible](https://img.shields.io/badge/Claude%20Code-Compatible-6366f1?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/regent-vcs/regent)
 [![Discord](https://img.shields.io/discord/1503732569622053004?style=for-the-badge&logo=discord&logoColor=white&color=5865F2)](https://discord.gg/Unf24KMh)
+[![Codex Compatible](https://img.shields.io/badge/Codex-Compatible-10b981?style=for-the-badge&logo=openai&logoColor=white)](https://github.com/regent-vcs/regent)
 
 </div>
 
@@ -30,7 +31,7 @@
 
 <div align="center">
   <img src="assets/demo-fast.gif" alt="re_gent tracking Claude Code activity" width="100%"/>
-  <p><em>Every tool call is automatically captured. No manual commits needed.</em></p>
+  <p><em>Every tool-using turn is automatically captured. No manual commits needed.</em></p>
 </div>
 
 ---
@@ -49,7 +50,7 @@ go install github.com/regent-vcs/regent/cmd/rgt@latest
 cd your-project
 rgt init
 
-# Work with Claude Code normally (every tool call is tracked)
+# Work with Claude Code or Codex normally
 
 # See what happened
 rgt log
@@ -151,7 +152,7 @@ You know this pain:
 
 - **`rgt log`** — what did this session do?
 - **`rgt blame`** — which prompt wrote this line?
-- **`rgt rewind`** — restore to any previous step (coming soon)
+- **`rgt show`** — inspect the full context for any recorded step
 
 We gave agents write access to our codebases. We did not give ourselves git for it. re_gent fixes that.
 
@@ -169,24 +170,27 @@ re_gent stores agent activity in `.regent/` (like `.git/`):
 └── config.toml
 ```
 
-Every tool call creates a **Step**:
+Every tool-using turn creates a **Step**:
 
 ```go
 Step {
   parent:      <previous-step-hash>
   tree:        <workspace-snapshot>
-  transcript:  <conversation-delta>
-  cause: {
-    tool_name: "Edit"
-    args:      <what-changed>
-    result:    <tool-output>
-  }
-  session_id:  "claude-20260502-143021"
+  causes: [
+    {
+      tool_name: "Edit"
+      args_blob: <tool-input-blob>
+      result_blob: <tool-output-blob>
+    }
+  ]
+  origin:      "claude_code" | "codex_cli"
+  turn_id:     <agent-turn-id>
+  session_id:  "claude_code:claude-20260502-143021"
   timestamp:   "2026-05-02T14:30:21Z"
 }
 ```
 
-Steps form a **DAG**. Each session has its own branch. Common ancestors dedupe. You get git-level auditability for agent activity.
+Steps form a **DAG**. Each session has its own branch. Conversation rows live in the SQLite index; tool payloads and optional transcript archives live in the content-addressed object store. You get git-level auditability for agent activity.
 
 **Technical details:** See [POC.md](POC.md) for the complete specification.
 
@@ -285,10 +289,10 @@ npm install && npm run compile
 | Command | Description |
 |---------|-------------|
 | `rgt init` | Initialize `.regent/` in current directory |
-| `rgt log` | Show step history (supports `--session`, `-n`, `--since`) |
+| `rgt log` | Show step history (supports `--session`, `-n`, `--json`, `--graph`) |
 | `rgt sessions` | List all active sessions |
 | `rgt status` | Show current repository state |
-| `rgt show <step>` | Display full context for a step (tool call + conversation) |
+| `rgt show <step>` | Display full context for a step (tools + conversation) |
 | `rgt blame <path>[:<line>]` | Show per-line provenance for a file |
 | `rgt cat <hash>` | Inspect any object by hash (debug) |
 | `rgt version` | Print version information |
@@ -310,7 +314,7 @@ npm install && npm run compile
 - **Fast Queries** — SQLite index, sub-10ms lookups
 - **Per-Session DAG** — Concurrent agents, no conflicts
 - **Conversation Tracking** — Survives `/compact` and `/clear`
-- **Hook-Driven** — Transparent Claude Code integration
+- **Hook-Driven** — Transparent Claude Code and Codex integration
 - **Concurrency-Safe** — CAS refs, ACID transactions
 - **Gitignore-Compatible** — `.regentignore` support
 
@@ -337,7 +341,7 @@ npm install && npm run compile
 
 - ~7.8k LOC Go implementation
 - Core functionality: init, log, sessions, status, show, blame — **COMPLETE**
-- Hook integration (Claude Code) — **COMPLETE**
+- Hook integration (Claude Code and Codex) — **COMPLETE**
 - Used daily by contributors
 - Not yet v1.0
 
@@ -363,7 +367,7 @@ We're working on:
 | Phase | Status | Features |
 |-------|--------|----------|
 | **Phase 1: Core Storage** | ✅ Complete | Object store, content addressing, SQLite index |
-| **Phase 2: Hook Integration** | ✅ Complete | Claude Code capture, session tracking |
+| **Phase 2: Hook Integration** | ✅ Complete | Claude Code and Codex capture, session tracking |
 | **Phase 3: Advanced Features** | 🚧 In Progress | fork, rewind, performance optimization |
 | **Phase 4: Multi-Tool Support** | 📋 Planned | Cursor, Cline, Continue adapters |
 | **Phase 5: Collaboration** | 📋 Planned | Session sharing, merge support |

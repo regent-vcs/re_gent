@@ -50,6 +50,12 @@ func SessionsCmd() *cobra.Command {
 			for _, sess := range sessions {
 				fmt.Printf("%s %s\n", style.Label("Session:"), sess.ID)
 				fmt.Printf("  %s     %s\n", style.Label("Origin:"), sess.Origin)
+				if sess.Model != "" {
+					fmt.Printf("  %s      %s\n", style.Label("Model:"), sess.Model)
+				}
+				if sess.PermissionMode != "" {
+					fmt.Printf("  %s %s\n", style.Label("Permission:"), sess.PermissionMode)
+				}
 				fmt.Printf("  %s    %s\n", style.Label("Started:"), style.Timestamp(sess.StartedAt.Format("2006-01-02 15:04:05")))
 				fmt.Printf("  %s  %s\n", style.Label("Last seen:"), style.Timestamp(sess.LastSeenAt.Format("2006-01-02 15:04:05")))
 

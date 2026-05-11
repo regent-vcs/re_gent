@@ -5,26 +5,43 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/pelletier/go-toml/v2"
 	"github.com/regent-vcs/regent/internal/index"
 	"github.com/regent-vcs/regent/internal/store"
 	"github.com/regent-vcs/regent/internal/style"
 	"github.com/spf13/cobra"
 )
 
-// InitCmd creates the init command
+type agentTarget string
+
+const (
+	agentAuto   agentTarget = "auto"
+	agentClaude agentTarget = "claude"
+	agentCodex  agentTarget = "codex"
+	agentBoth   agentTarget = "both"
+
+	claudeUserHook      = "rgt message-hook user"
+	claudeAssistantHook = "rgt message-hook assistant"
+	claudeToolBatchHook = "rgt tool-batch-hook"
+	codexHookCommand    = "rgt codex-hook"
+)
+
 func InitCmd() *cobra.Command {
 	var skipHook bool
+	var skipSkills bool
+	var agent string
 
 	cmd := &cobra.Command{
 		Use:          "init",
 		Short:        "Initialize a new re_gent repository",
-		Long:         "Creates a .regent directory in the current workspace and sets up the object store.",
-		SilenceUsage: true, // Don't show usage on logical errors
+		Long:         "Creates a .regent directory in the current workspace and sets up agent hooks.",
+		SilenceUsage: true,
 		Annotations: map[string]string{
-			"commandOrder": "0", // Ensure init appears first in help
+			"commandOrder": "0",
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, err := os.Getwd()
@@ -32,10 +49,14 @@ func InitCmd() *cobra.Command {
 				return fmt.Errorf("get working directory: %w", err)
 			}
 
-			// Print header
+			targets, err := resolveAgentTargets(cwd, agentTarget(agent))
+			if err != nil {
+				return err
+			}
+			input := bufio.NewReader(os.Stdin)
+
 			printHeader()
 
-			// Step 1: Initialize repository
 			printStep(1, 3, "Initialize Repository")
 			s, err := store.Init(cwd)
 			if err != nil {
@@ -57,37 +78,34 @@ func InitCmd() *cobra.Command {
 			fmt.Printf("  %s Created SQLite index\n", style.Success(""))
 			fmt.Println()
 
-			// Step 2: Configure hook (unless --skip-hook)
-			if !skipHook {
-				printStep(2, 3, "Configure Claude Code Hook")
-				if err := offerHookInstall(cwd); err != nil {
-					fmt.Printf("  %s Could not configure hook: %v\n", style.Warning(""), err)
-					printManualInstructions()
-				}
-			} else {
-				printStep(2, 3, "Configure Claude Code Hook (skipped)")
-				printManualInstructions()
+			printStep(2, 3, "Configure Agent Hooks")
+			if skipHook {
+				fmt.Printf("  %s Hook configuration skipped\n", style.DimText("-"))
+				printManualInstructions(targets)
+			} else if err := offerHookInstall(cwd, targets, input); err != nil {
+				fmt.Printf("  %s Could not configure hooks: %v\n", style.Warning(""), err)
+				printManualInstructions(targets)
 			}
 
-			// Step 3: Install Claude skills
-			printStep(3, 3, "Install Claude Skills")
-			if err := offerSkillInstall(cwd); err != nil {
+			printStep(3, 3, "Install Agent Skills")
+			if skipSkills {
+				fmt.Printf("  %s Skill installation skipped\n", style.DimText("-"))
+			} else if err := offerSkillInstall(cwd, targets, input); err != nil {
 				fmt.Printf("  %s Could not install skills: %v\n", style.Warning(""), err)
 			}
 
-			// Summary
-			printSummary(cwd)
-
+			printSummary(cwd, targets)
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&skipHook, "skip-hook", false, "Skip automatic hook configuration")
+	cmd.Flags().BoolVar(&skipSkills, "skip-skills", false, "Skip agent skill installation")
+	cmd.Flags().StringVar(&agent, "agent", string(agentAuto), "Agent hooks to configure: auto, claude, codex, both")
 
 	return cmd
 }
 
-// printHeader prints the init wizard header
 func printHeader() {
 	fmt.Println()
 	fmt.Println(style.DividerFull(""))
@@ -96,355 +114,359 @@ func printHeader() {
 	fmt.Println()
 }
 
-// printStep prints a step header
 func printStep(current, total int, title string) {
 	fmt.Println(style.SectionHeader(fmt.Sprintf("Step %d/%d: %s", current, total, title)))
 	fmt.Println()
 }
 
-// printSummary prints the completion summary
-func printSummary(projectRoot string) {
+func printSummary(projectRoot string, targets []agentTarget) {
 	fmt.Println()
 	fmt.Println(style.DividerFull(""))
-	fmt.Printf("  %s Initialization Complete!\n", style.Success(""))
+	fmt.Printf("  %s Initialization complete\n", style.Success(""))
 	fmt.Println(style.DividerFull(""))
 	fmt.Println()
 	fmt.Println("Next steps:")
-	fmt.Println("  • Start a Claude Code session in this directory")
-	fmt.Println("  • Make some changes (the hook will capture them)")
-	fmt.Println("  • Run: rgt log")
-	fmt.Println("  • Run: rgt blame <file>")
-	fmt.Println("  • Use: /log, /blame, /show, /rewind in Claude")
+	fmt.Println("  - Start an agent session in this directory")
+	fmt.Println("  - Make changes with Claude Code or Codex")
+	fmt.Println("  - Run: rgt log")
+	fmt.Println("  - Run: rgt blame <file>")
+	if hasAgent(targets, agentClaude) || hasAgent(targets, agentCodex) {
+		fmt.Println("  - Agent skills: log, blame, show")
+	}
+	if hasAgent(targets, agentCodex) {
+		fmt.Println("  - Codex may ask you to trust this project and the re_gent hooks")
+	}
 	fmt.Println()
 	fmt.Printf("%s %s\n", style.Label("Repository:"), filepath.Join(projectRoot, ".regent"))
 	fmt.Println()
 }
 
-// offerHookInstall prompts user and configures the hook if approved
-func offerHookInstall(projectRoot string) error {
-	fmt.Printf("%s captures step history automatically via Claude Code hooks.\n", style.Brand("re_gent"))
+func offerHookInstall(projectRoot string, targets []agentTarget, input *bufio.Reader) error {
+	fmt.Printf("%s captures step history automatically via agent hooks.\n", style.Brand("re_gent"))
 	fmt.Println()
-	fmt.Println("This will configure .claude/settings.json to run 'rgt hook'")
-	fmt.Println("after each tool use (Write, Edit, Bash, etc.).")
+	for _, target := range targets {
+		switch target {
+		case agentClaude:
+			fmt.Println("  - Claude Code: .claude/settings.json")
+		case agentCodex:
+			fmt.Println("  - Codex: .codex/config.toml")
+		}
+	}
 	fmt.Println()
 	fmt.Print(style.Prompt("Enable automatic tracking?", "[Y/n]:"))
 
-	reader := bufio.NewReader(os.Stdin)
-	response, err := reader.ReadString('\n')
+	confirmed, err := confirmedDefaultYes(input)
 	if err != nil {
-		return fmt.Errorf("read input: %w", err)
+		return fmt.Errorf("read hook confirmation: %w", err)
 	}
-
-	response = strings.TrimSpace(strings.ToLower(response))
-
-	// Default to yes (Y is uppercase in prompt)
-	if response == "" || response == "y" || response == "yes" {
-		if err := installHook(projectRoot); err != nil {
-			return err
-		}
+	if !confirmed {
 		fmt.Println()
-		fmt.Printf("  %s Hook configured in .claude/settings.json\n", style.Success(""))
-		fmt.Printf("  %s Steps will be captured automatically\n", style.Success(""))
+		fmt.Printf("  %s Skipped - you can configure hooks manually later\n", style.DimText("-"))
 		fmt.Println()
 		return nil
 	}
 
-	// User declined
-	fmt.Println()
-	fmt.Printf("  %s Skipped - you can configure manually later\n", style.DimText("⊘"))
+	for _, target := range targets {
+		switch target {
+		case agentClaude:
+			if err := installClaudeHook(projectRoot); err != nil {
+				return err
+			}
+			fmt.Printf("  %s Claude Code hooks configured\n", style.Success(""))
+		case agentCodex:
+			if err := installCodexHook(projectRoot); err != nil {
+				return err
+			}
+			fmt.Printf("  %s Codex hooks configured\n", style.Success(""))
+		}
+	}
 	fmt.Println()
 	return nil
 }
 
-// installHook adds the PostToolUse hook to .claude/settings.json
-func installHook(projectRoot string) error {
+func installClaudeHook(projectRoot string) error {
 	claudeDir := filepath.Join(projectRoot, ".claude")
 	settingsPath := filepath.Join(claudeDir, "settings.json")
 
-	// Ensure .claude directory exists
 	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
 		return fmt.Errorf("create .claude directory: %w", err)
 	}
 
-	// Read existing settings or start fresh
-	var settings map[string]interface{}
-	data, err := os.ReadFile(settingsPath)
-	if err == nil {
-		// File exists, try to parse it
+	settings := map[string]interface{}{}
+	if data, err := os.ReadFile(settingsPath); err == nil && len(strings.TrimSpace(string(data))) > 0 {
 		if err := json.Unmarshal(data, &settings); err != nil {
-			// Invalid JSON - backup and start fresh
-			backupPath := settingsPath + ".backup"
-			_ = os.Rename(settingsPath, backupPath)
-			settings = make(map[string]interface{})
-		}
-	} else {
-		// File doesn't exist, start fresh
-		settings = make(map[string]interface{})
-	}
-
-	// Check if hook already configured (handle both old and new formats)
-	if hooks, ok := settings["hooks"].(map[string]interface{}); ok {
-		// Old format: "PostToolUse": "rgt hook"
-		if postToolUse, ok := hooks["PostToolUse"].(string); ok && postToolUse == "rgt hook" {
-			fmt.Printf("%s PostToolUse hook already configured (old format - will upgrade)\n", style.Success(""))
-			fmt.Println()
-			// Don't return - let it upgrade to new format
-		} else if postToolUseArray, ok := hooks["PostToolUse"].([]interface{}); ok {
-			// New format: check if rgt hook exists
-			for _, entry := range postToolUseArray {
-				if entryMap, ok := entry.(map[string]interface{}); ok {
-					if hooksArray, ok := entryMap["hooks"].([]interface{}); ok {
-						for _, hook := range hooksArray {
-							if hookMap, ok := hook.(map[string]interface{}); ok {
-								if cmd, ok := hookMap["command"].(string); ok && strings.Contains(cmd, "rgt hook") {
-									fmt.Printf("%s PostToolUse hook already configured\n", style.Success(""))
-									fmt.Println()
-									return nil
-								}
-							}
-						}
-					}
-				}
+			if err := backupFile(settingsPath); err != nil {
+				return fmt.Errorf("backup invalid Claude settings: %w", err)
 			}
+			settings = map[string]interface{}{}
 		}
 	}
 
-	// Add or update hooks section
-	if settings["hooks"] == nil {
-		settings["hooks"] = make(map[string]interface{})
+	hooks, _ := settings["hooks"].(map[string]interface{})
+	if hooks == nil {
+		hooks = map[string]interface{}{}
+		settings["hooks"] = hooks
 	}
 
-	hooks := settings["hooks"].(map[string]interface{})
+	mergeHookCommand(hooks, "UserPromptSubmit", claudeUserHook)
+	mergeHookCommand(hooks, "Stop", claudeAssistantHook)
+	mergeHookCommand(hooks, "PostToolBatch", claudeToolBatchHook)
+	removeRegentHookCommands(hooks, "PostToolUse")
 
-	// Configure the three hooks for message capture (one step per conversation turn)
-	hooks["UserPromptSubmit"] = []interface{}{
-		map[string]interface{}{
-			"matcher": "",
-			"hooks": []interface{}{
-				map[string]interface{}{
-					"type":    "command",
-					"command": "rgt message-hook user",
-				},
-			},
-		},
-	}
-
-	hooks["Stop"] = []interface{}{
-		map[string]interface{}{
-			"matcher": "",
-			"hooks": []interface{}{
-				map[string]interface{}{
-					"type":    "command",
-					"command": "rgt message-hook assistant",
-				},
-			},
-		},
-	}
-
-	hooks["PostToolBatch"] = []interface{}{
-		map[string]interface{}{
-			"matcher": "",
-			"hooks": []interface{}{
-				map[string]interface{}{
-					"type":    "command",
-					"command": "rgt tool-batch-hook",
-				},
-			},
-		},
-	}
-
-	// PostToolUse hook is no longer needed (steps created by Stop hook now)
-
-	// Write back with pretty formatting
 	output, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal settings: %w", err)
+		return fmt.Errorf("marshal Claude settings: %w", err)
 	}
-
 	if err := os.WriteFile(settingsPath, output, 0o644); err != nil {
-		return fmt.Errorf("write settings: %w", err)
+		return fmt.Errorf("write Claude settings: %w", err)
 	}
 
 	return nil
 }
 
-// printManualInstructions shows how to configure the hook manually
-func printManualInstructions() {
-	fmt.Println("To enable tracking manually, add this to .claude/settings.json:")
-	fmt.Println()
-	fmt.Println("  {")
-	fmt.Println("    \"hooks\": {")
-	fmt.Println("      \"PostToolUse\": [")
-	fmt.Println("        {")
-	fmt.Println("          \"matcher\": \"\",")
-	fmt.Println("          \"hooks\": [")
-	fmt.Println("            {")
-	fmt.Println("              \"type\": \"command\",")
-	fmt.Println("              \"command\": \"rgt hook\"")
-	fmt.Println("            }")
-	fmt.Println("          ]")
-	fmt.Println("        }")
-	fmt.Println("      ]")
-	fmt.Println("    }")
-	fmt.Println("  }")
-	fmt.Println()
+func installCodexHook(projectRoot string) error {
+	codexDir := filepath.Join(projectRoot, ".codex")
+	configPath := filepath.Join(codexDir, "config.toml")
+
+	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+		return fmt.Errorf("create .codex directory: %w", err)
+	}
+
+	config := map[string]interface{}{}
+	if data, err := os.ReadFile(configPath); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+		if err := toml.Unmarshal(data, &config); err != nil {
+			if err := backupFile(configPath); err != nil {
+				return fmt.Errorf("backup invalid Codex config: %w", err)
+			}
+			config = map[string]interface{}{}
+		}
+	}
+
+	hooks, _ := config["hooks"].(map[string]interface{})
+	if hooks == nil {
+		hooks = map[string]interface{}{}
+		config["hooks"] = hooks
+	}
+
+	for _, eventName := range []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop"} {
+		mergeHookCommand(hooks, eventName, codexHookCommand)
+	}
+
+	output, err := toml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("marshal Codex config: %w", err)
+	}
+	if err := os.WriteFile(configPath, output, 0o644); err != nil {
+		return fmt.Errorf("write Codex config: %w", err)
+	}
+
+	return nil
 }
 
-// createRegentGitignore creates .regent/.gitignore to ignore temporary files
+func mergeHookCommand(hooks map[string]interface{}, eventName, command string) {
+	groups := filterRegentHookCommands(normalizeHookGroups(hooks[eventName]))
+	hooks[eventName] = append(groups, hookGroup(command))
+}
+
+func removeRegentHookCommands(hooks map[string]interface{}, eventName string) {
+	groups := filterRegentHookCommands(normalizeHookGroups(hooks[eventName]))
+	if len(groups) == 0 {
+		delete(hooks, eventName)
+		return
+	}
+	hooks[eventName] = groups
+}
+
+func normalizeHookGroups(value interface{}) []interface{} {
+	switch typed := value.(type) {
+	case nil:
+		return nil
+	case []interface{}:
+		return typed
+	case []map[string]interface{}:
+		groups := make([]interface{}, 0, len(typed))
+		for _, group := range typed {
+			groups = append(groups, group)
+		}
+		return groups
+	case map[string]interface{}:
+		return []interface{}{typed}
+	case string:
+		return []interface{}{hookGroup(typed)}
+	default:
+		return []interface{}{typed}
+	}
+}
+
+func filterRegentHookCommands(groups []interface{}) []interface{} {
+	filtered := make([]interface{}, 0, len(groups))
+	for _, group := range groups {
+		groupMap, ok := group.(map[string]interface{})
+		if !ok {
+			filtered = append(filtered, group)
+			continue
+		}
+
+		hookEntries, hasHooks := normalizeHookEntries(groupMap["hooks"])
+		if !hasHooks {
+			filtered = append(filtered, group)
+			continue
+		}
+
+		nextHookEntries := make([]interface{}, 0, len(hookEntries))
+		for _, hookEntry := range hookEntries {
+			hookMap, ok := hookEntry.(map[string]interface{})
+			if !ok {
+				nextHookEntries = append(nextHookEntries, hookEntry)
+				continue
+			}
+			command, _ := hookMap["command"].(string)
+			if isRegentHookCommand(command) {
+				continue
+			}
+			nextHookEntries = append(nextHookEntries, hookEntry)
+		}
+		if len(nextHookEntries) == 0 {
+			continue
+		}
+
+		nextGroup := map[string]interface{}{}
+		for key, value := range groupMap {
+			nextGroup[key] = value
+		}
+		nextGroup["hooks"] = nextHookEntries
+		filtered = append(filtered, nextGroup)
+	}
+	return filtered
+}
+
+func normalizeHookEntries(value interface{}) ([]interface{}, bool) {
+	switch typed := value.(type) {
+	case nil:
+		return nil, false
+	case []interface{}:
+		return typed, true
+	case []map[string]interface{}:
+		entries := make([]interface{}, 0, len(typed))
+		for _, entry := range typed {
+			entries = append(entries, entry)
+		}
+		return entries, true
+	case map[string]interface{}:
+		return []interface{}{typed}, true
+	default:
+		return []interface{}{typed}, true
+	}
+}
+
+func hookGroup(command string) map[string]interface{} {
+	return map[string]interface{}{
+		"matcher": "",
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":    "command",
+				"command": command,
+			},
+		},
+	}
+}
+
+func isRegentHookCommand(command string) bool {
+	fields := strings.Fields(strings.TrimSpace(command))
+	for len(fields) > 0 && strings.Contains(fields[0], "=") && !strings.HasPrefix(fields[0], "=") {
+		fields = fields[1:]
+	}
+	if len(fields) == 0 {
+		return false
+	}
+
+	first := strings.TrimPrefix(filepath.Base(fields[0]), "./")
+	if first == "rgt" || first == "regent" {
+		return true
+	}
+
+	return len(fields) >= 3 && fields[0] == "go" && fields[1] == "run" && strings.Contains(fields[2], "cmd/rgt")
+}
+
+func printManualInstructions(targets []agentTarget) {
+	fmt.Println("Manual hook configuration:")
+	fmt.Println()
+	if hasAgent(targets, agentClaude) {
+		fmt.Println("Claude Code .claude/settings.json events:")
+		fmt.Println("  UserPromptSubmit -> rgt message-hook user")
+		fmt.Println("  Stop             -> rgt message-hook assistant")
+		fmt.Println("  PostToolBatch    -> rgt tool-batch-hook")
+		fmt.Println()
+	}
+	if hasAgent(targets, agentCodex) {
+		fmt.Println("Codex .codex/config.toml events:")
+		fmt.Println("  SessionStart     -> rgt codex-hook")
+		fmt.Println("  UserPromptSubmit -> rgt codex-hook")
+		fmt.Println("  PostToolUse      -> rgt codex-hook")
+		fmt.Println("  Stop             -> rgt codex-hook")
+		fmt.Println()
+	}
+}
+
 func createRegentGitignore(projectRoot string) error {
 	gitignorePath := filepath.Join(projectRoot, ".regent", ".gitignore")
-
 	content := `# re_gent temporary files
 *.backup
-rewound-*.jsonl
 log/
 `
 
 	return os.WriteFile(gitignorePath, []byte(content), 0o644)
 }
 
-// offerSkillInstall prompts user and installs Claude skills if approved
-func offerSkillInstall(projectRoot string) error {
-	fmt.Printf("Claude skills let you use %s commands with slash syntax:\n", style.Brand("re_gent"))
+func offerSkillInstall(projectRoot string, targets []agentTarget, input *bufio.Reader) error {
+	fmt.Printf("Agent skills expose common %s commands inside the agent UI.\n", style.Brand("re_gent"))
 	fmt.Println()
-	fmt.Println("  /log [options]       Show step history")
-	fmt.Println("  /blame <file>        Show line provenance")
-	fmt.Println("  /show <step>         Show step details")
-	fmt.Println("  /rewind <step>       Rewind to a step")
+	fmt.Println("  log [options]         Show step history")
+	fmt.Println("  blame <path>[:<line>] Show line provenance")
+	fmt.Println("  show <step>           Show step details")
 	fmt.Println()
 	fmt.Print(style.Prompt("Install skills?", "[Y/n]:"))
 
-	reader := bufio.NewReader(os.Stdin)
-	response, err := reader.ReadString('\n')
+	confirmed, err := confirmedDefaultYes(input)
 	if err != nil {
-		return fmt.Errorf("read input: %w", err)
+		return fmt.Errorf("read skill confirmation: %w", err)
 	}
-
-	response = strings.TrimSpace(strings.ToLower(response))
-
-	// Default to yes
-	if response == "" || response == "y" || response == "yes" {
-		if err := installSkills(projectRoot); err != nil {
-			return err
-		}
+	if !confirmed {
 		fmt.Println()
-		fmt.Printf("  %s Skills installed in .claude/skills/\n", style.Success(""))
-		fmt.Printf("  %s Use /log, /blame, /show, /rewind in Claude\n", style.Success(""))
+		fmt.Printf("  %s Skipped - you can install skills manually later\n", style.DimText("-"))
 		fmt.Println()
 		return nil
 	}
 
-	fmt.Println()
-	fmt.Printf("  %s Skipped - you can install manually later\n", style.DimText("⊘"))
+	for _, target := range targets {
+		switch target {
+		case agentClaude:
+			if err := installSkills(filepath.Join(projectRoot, ".claude", "skills")); err != nil {
+				return err
+			}
+			fmt.Printf("  %s Claude skills installed in .claude/skills/\n", style.Success(""))
+		case agentCodex:
+			if err := installSkills(filepath.Join(projectRoot, ".agents", "skills")); err != nil {
+				return err
+			}
+			fmt.Printf("  %s Codex skills installed in .agents/skills/\n", style.Success(""))
+		}
+	}
 	fmt.Println()
 	return nil
 }
 
-// installSkills creates Claude skill files in .claude/skills/
-func installSkills(projectRoot string) error {
-	skillsDir := filepath.Join(projectRoot, ".claude", "skills")
+func installSkills(skillsDir string) error {
 	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
 		return fmt.Errorf("create skills directory: %w", err)
 	}
 
-	// Each skill needs its own directory with a SKILL.md file inside
-	skills := map[string]string{
-		"log": `---
-description: View re_gent activity log with full conversation, file changes, and step history. Shows what you asked, how I responded, which tools were used, and what files changed. Use when reviewing session history or understanding what happened in previous steps.
-allowed-tools: Bash(rgt log *)
-argument-hint: "[session-id] [flags]"
----
-
-Display the re_gent activity log showing captured steps, full conversation (user + assistant + tools), and file changes.
-
-By default shows both conversation and file changes for the most recent session.
-
-Run the log command:
-` + "```bash\nrgt log $ARGUMENTS\n```" + `
-
-## Common usage
-
-Show recent steps (conversation + files):
-` + "```bash\nrgt log\n```" + `
-
-Show only conversation:
-` + "```bash\nrgt log --conversation-only\n```" + `
-
-Show only file changes:
-` + "```bash\nrgt log --files-only\n```" + `
-
-Show step lineage as graph (like git log --graph):
-` + "```bash\nrgt log --graph\n```" + `
-
-Show more history:
-` + "```bash\nrgt log --limit 50\n```" + `
-
-Show specific session:
-` + "```bash\nrgt log <session-id>\n```",
-
-		"blame": `---
-description: Show which re_gent step last modified each line of a file. Use when investigating file provenance, understanding change history, or debugging.
-allowed-tools: Bash(rgt blame *)
-argument-hint: "<file> [line]"
----
-
-Display per-line provenance showing which step introduced or last modified each line.
-
-Run blame on a file:
-` + "```bash\nrgt blame $ARGUMENTS\n```" + `
-
-## Examples
-
-Blame entire file:
-` + "```bash\nrgt blame src/main.go\n```" + `
-
-Blame specific line:
-` + "```bash\nrgt blame src/main.go:42\n```",
-
-		"show": `---
-description: Show detailed context for a re_gent step including tool arguments, result, and conversation. Use when investigating what happened in a specific step.
-allowed-tools: Bash(rgt show *)
-argument-hint: "<step-hash>"
----
-
-Display full details for a step including:
-- Tool call (name, arguments)
-- Tool result
-- Conversation messages
-- File changes
-
-Show step details:
-` + "```bash\nrgt show $ARGUMENTS\n```" + `
-
-The step hash can be shortened (first 7+ characters).`,
-
-		"rewind": `---
-description: Rewind workspace and conversation to a previous re_gent step. Non-destructive with automatic backup. Use when recovering from mistakes or exploring alternative paths.
-allowed-tools: Bash(rgt rewind *)
-argument-hint: "<step-hash>"
-disable-model-invocation: true
----
-
-⚠️ **Warning**: This will restore files and conversation state to the specified step.
-
-Automatic backup is created at ` + "`" + `.regent/backups/` + "`" + ` before rewinding.
-
-Rewind to a step:
-` + "```bash\nrgt rewind $ARGUMENTS\n```" + `
-
-The step hash can be shortened (first 7+ characters).
-
-After rewinding, the current conversation transcript will be saved and the workspace files will match the target step's state.`,
-	}
-
-	for skillName, content := range skills {
-		// Create skill directory
+	for skillName, content := range skillContents() {
 		skillDir := filepath.Join(skillsDir, skillName)
 		if err := os.MkdirAll(skillDir, 0o755); err != nil {
 			return fmt.Errorf("create skill directory %s: %w", skillName, err)
 		}
 
-		// Write SKILL.md inside the directory
 		skillPath := filepath.Join(skillDir, "SKILL.md")
 		if err := os.WriteFile(skillPath, []byte(content), 0o644); err != nil {
 			return fmt.Errorf("write skill %s: %w", skillName, err)
@@ -452,4 +474,102 @@ After rewinding, the current conversation transcript will be saved and the works
 	}
 
 	return nil
+}
+
+func skillContents() map[string]string {
+	return map[string]string{
+		"log": `---
+description: View re_gent activity log with conversation, file changes, and step history. Use when reviewing session history or understanding what happened in previous steps.
+allowed-tools: Bash(rgt log *)
+argument-hint: "[session-id] [flags]"
+---
+
+Display the re_gent activity log.
+
+Run:
+` + "```bash\nrgt log $ARGUMENTS\n```" + `
+
+Common usage:
+` + "```bash\nrgt log\nrgt log --conversation-only\nrgt log --files-only\nrgt log --graph\nrgt log --limit 50\n```",
+
+		"blame": `---
+description: Show which re_gent step last modified each line of a file. Use when investigating file provenance or debugging.
+allowed-tools: Bash(rgt blame *)
+argument-hint: "<path>[:<line>]"
+---
+
+Display per-line provenance.
+
+Run:
+` + "```bash\nrgt blame $ARGUMENTS\n```",
+
+		"show": `---
+description: Show detailed context for a re_gent step, including tool calls, tool results, and conversation.
+allowed-tools: Bash(rgt show *)
+argument-hint: "<step-hash>"
+---
+
+Display full details for a step.
+
+Run:
+` + "```bash\nrgt show $ARGUMENTS\n```",
+	}
+}
+
+func resolveAgentTargets(projectRoot string, target agentTarget) ([]agentTarget, error) {
+	switch target {
+	case agentClaude:
+		return []agentTarget{agentClaude}, nil
+	case agentCodex:
+		return []agentTarget{agentCodex}, nil
+	case agentBoth:
+		return []agentTarget{agentClaude, agentCodex}, nil
+	case agentAuto, "":
+		var targets []agentTarget
+		if pathExists(filepath.Join(projectRoot, ".claude")) || commandExists("claude") {
+			targets = append(targets, agentClaude)
+		}
+		if pathExists(filepath.Join(projectRoot, ".codex")) || commandExists("codex") {
+			targets = append(targets, agentCodex)
+		}
+		if len(targets) == 0 {
+			targets = append(targets, agentClaude, agentCodex)
+		}
+		return targets, nil
+	default:
+		return nil, fmt.Errorf("invalid --agent %q; expected auto, claude, codex, or both", target)
+	}
+}
+
+func hasAgent(targets []agentTarget, target agentTarget) bool {
+	for _, candidate := range targets {
+		if candidate == target {
+			return true
+		}
+	}
+	return false
+}
+
+func confirmedDefaultYes(input *bufio.Reader) (bool, error) {
+	response, err := input.ReadString('\n')
+	if err != nil {
+		return false, err
+	}
+
+	response = strings.TrimSpace(strings.ToLower(response))
+	return response == "" || response == "y" || response == "yes", nil
+}
+
+func backupFile(path string) error {
+	return os.Rename(path, path+".backup")
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func commandExists(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
 }

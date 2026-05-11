@@ -3,6 +3,7 @@ module github.com/regent-vcs/regent
 go 1.22
 
 require (
+	github.com/pelletier/go-toml/v2 v2.2.3
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	github.com/sergi/go-diff v1.3.1
 	github.com/spf13/cobra v1.8.0

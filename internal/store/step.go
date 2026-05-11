@@ -29,13 +29,41 @@ type Step struct {
 	Cause           Cause    `json:"cause,omitempty"`  // DEPRECATED: use Causes instead (kept for backward compat)
 	Causes          []Cause  `json:"causes,omitempty"` // Multiple tools in one conversation turn
 	SessionID       string   `json:"session_id"`
+	Origin          string   `json:"origin,omitempty"`
+	TurnID          string   `json:"turn_id,omitempty"`
 	AgentID         string   `json:"agent_id,omitempty"`
 	TimestampNanos  int64    `json:"ts"`
 	Effects         []Effect `json:"effects,omitempty"`
 }
 
+// PrimaryCause returns the canonical cause used for legacy displays and indexes.
+func (step *Step) PrimaryCause() Cause {
+	if step == nil {
+		return Cause{}
+	}
+	if len(step.Causes) > 0 {
+		return step.Causes[0]
+	}
+	return step.Cause
+}
+
+// NormalizeCauses keeps the legacy Cause field and the Causes slice consistent.
+func (step *Step) NormalizeCauses() {
+	if step == nil {
+		return
+	}
+	if len(step.Causes) == 0 && step.Cause.ToolName != "" {
+		step.Causes = []Cause{step.Cause}
+	}
+	if step.Cause.ToolName == "" && len(step.Causes) > 0 {
+		step.Cause = step.Causes[0]
+	}
+}
+
 // WriteStep writes a step to the object store
 func (s *Store) WriteStep(step *Step) (Hash, error) {
+	step.NormalizeCauses()
+
 	data, err := json.Marshal(step)
 	if err != nil {
 		return "", fmt.Errorf("marshal step: %w", err)

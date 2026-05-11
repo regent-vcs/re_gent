@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -49,23 +50,47 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 			continue
 		}
 
-		// Fetch tool args and results
-		var args, result json.RawMessage
-		if step.Cause.ArgsBlob != "" {
-			argsData, err := s.ReadBlob(step.Cause.ArgsBlob)
-			if err == nil {
-				args = json.RawMessage(argsData)
-			}
-		}
-		if step.Cause.ResultBlob != "" {
-			resultData, err := s.ReadBlob(step.Cause.ResultBlob)
-			if err == nil {
-				result = json.RawMessage(resultData)
-			}
+		causes := step.Causes
+		if len(causes) == 0 && step.Cause.ToolName != "" {
+			causes = []store.Cause{step.Cause}
 		}
 
-		// Extract files from tool arguments (what the tool actually touched)
-		files := extractFilesFromToolArgs(stepInfo.ToolName, args)
+		enrichedCauses := make([]EnrichedCause, 0, len(causes))
+		filesByPath := map[string]bool{}
+		var args, result json.RawMessage
+		for i, cause := range causes {
+			var causeArgs, causeResult json.RawMessage
+			if cause.ArgsBlob != "" {
+				argsData, err := s.ReadBlob(cause.ArgsBlob)
+				if err == nil {
+					causeArgs = rawJSONForOutput(argsData)
+				}
+			}
+			if cause.ResultBlob != "" {
+				resultData, err := s.ReadBlob(cause.ResultBlob)
+				if err == nil {
+					causeResult = rawJSONForOutput(resultData)
+				}
+			}
+			if i == 0 {
+				args = causeArgs
+				result = causeResult
+			}
+			for _, file := range extractFilesFromToolArgs(cause.ToolName, causeArgs) {
+				filesByPath[file] = true
+			}
+			enrichedCauses = append(enrichedCauses, EnrichedCause{
+				Cause:  cause,
+				Args:   causeArgs,
+				Result: causeResult,
+			})
+		}
+
+		files := make([]string, 0, len(filesByPath))
+		for file := range filesByPath {
+			files = append(files, file)
+		}
+		sort.Strings(files)
 
 		// Fetch conversation messages from database
 		var messages []json.RawMessage
@@ -101,15 +126,20 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 				} else if msg.MessageType == "tool_call" {
 					// Tool call - add to content blocks
 					if msg.ToolInput != "" {
-						inputData, _ := s.ReadBlob(store.Hash(msg.ToolInput))
-						var inputMap map[string]interface{}
-						json.Unmarshal(inputData, &inputMap)
+						inputData, err := s.ReadBlob(store.Hash(msg.ToolInput))
+						if err != nil {
+							continue
+						}
+						var inputValue interface{}
+						if err := json.Unmarshal(rawJSONForOutput(inputData), &inputValue); err != nil {
+							continue
+						}
 
 						currentContent = append(currentContent, map[string]interface{}{
 							"type":  "tool_use",
 							"id":    msg.ToolUseID,
 							"name":  msg.ToolName,
-							"input": inputMap,
+							"input": inputValue,
 						})
 					}
 				}
@@ -170,6 +200,7 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 
 		enriched[i] = EnrichedStep{
 			StepInfo:    stepInfo,
+			Causes:      enrichedCauses,
 			Files:       files,
 			FileDiffs:   fileDiffs,
 			Args:        args,
@@ -181,6 +212,17 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 	}
 
 	return enriched, nil
+}
+
+func rawJSONForOutput(data []byte) json.RawMessage {
+	if json.Valid(data) {
+		return json.RawMessage(data)
+	}
+	encoded, err := json.Marshal(string(data))
+	if err != nil {
+		return json.RawMessage(`null`)
+	}
+	return json.RawMessage(encoded)
 }
 
 // extractFilesFromToolArgs extracts file paths from tool arguments
@@ -208,12 +250,26 @@ func extractFilesFromToolArgs(toolName string, args json.RawMessage) []string {
 		// Bash doesn't directly specify files, leave empty
 		// Could potentially parse from command, but that's fragile
 	default:
-		// Unknown tool, try file_path as fallback
-		if filePath, ok := argsMap["file_path"].(string); ok && filePath != "" {
-			files = append(files, makeRelativePath(filePath))
-		}
+		files = append(files, extractPathFields(argsMap)...)
 	}
 
+	return files
+}
+
+func extractPathFields(argsMap map[string]interface{}) []string {
+	var files []string
+	for _, key := range []string{"file_path", "path", "filename"} {
+		if path, ok := argsMap[key].(string); ok && path != "" {
+			files = append(files, makeRelativePath(path))
+		}
+	}
+	if paths, ok := argsMap["files"].([]interface{}); ok {
+		for _, raw := range paths {
+			if path, ok := raw.(string); ok && path != "" {
+				files = append(files, makeRelativePath(path))
+			}
+		}
+	}
 	return files
 }
 

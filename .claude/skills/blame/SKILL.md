@@ -1,7 +1,7 @@
 ---
 description: Show which re_gent step last modified each line of a file. Use when investigating file provenance, understanding change history, or debugging.
 allowed-tools: Bash(rgt blame *)
-argument-hint: "<file> [line]"
+argument-hint: "<path>[:<line>]"
 ---
 
 Display per-line provenance showing which step introduced or last modified each line.

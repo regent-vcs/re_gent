@@ -1,11 +1,11 @@
 ---
 name: log
-description: Show re_gent step history for the current session
+description: Show re_gent step history for the default or selected session
 ---
 
 # Log Skill
 
-Shows the re_gent version control log for the current Claude Code session, displaying the full history of tool calls, file changes, and conversation.
+Shows the re_gent version control log for the default or selected session, displaying captured tool calls, file changes, and conversation.
 
 ## Usage
 
@@ -57,7 +57,7 @@ Show more history:
 
 ## Implementation
 
-This skill runs `rgt log` with the current session ID. The session ID is automatically detected from the most recent Regent session in the `.regent/` directory.
+This skill runs `rgt log`. Without an explicit session, re_gent uses the most recent session with captured steps in the `.regent/` directory.
 
 If you need to see a different session's log, you can specify the session ID explicitly:
 ```

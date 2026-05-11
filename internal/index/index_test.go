@@ -1,6 +1,9 @@
 package index
 
 import (
+	"database/sql"
+	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -647,3 +650,184 @@ func TestGetMessagesForStep(t *testing.T) {
 		t.Errorf("Second message seq: got %d, want 1", retrieved[1].SeqNum)
 	}
 }
+
+func TestOpen_MigratesLegacySchema(t *testing.T) {
+	root := t.TempDir()
+	s, err := store.Init(root)
+	if err != nil {
+		t.Fatalf("init store: %v", err)
+	}
+
+	db, err := sql.Open("sqlite", filepath.Join(s.Root, "index.db"))
+	if err != nil {
+		t.Fatalf("open raw db: %v", err)
+	}
+	if _, err := db.Exec(legacySchema); err != nil {
+		t.Fatalf("create legacy schema: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close raw db: %v", err)
+	}
+
+	idx, err := Open(s)
+	if err != nil {
+		t.Fatalf("open migrated index: %v", err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	for _, column := range []struct {
+		table string
+		name  string
+	}{
+		{"steps", "origin"},
+		{"steps", "turn_id"},
+		{"messages", "turn_id"},
+		{"messages", "processed_at"},
+		{"sessions", "model"},
+		{"sessions", "permission_mode"},
+		{"sessions", "transcript_path"},
+	} {
+		exists, err := columnExists(idx.db, column.table, column.name)
+		if err != nil {
+			t.Fatalf("check column %s.%s: %v", column.table, column.name, err)
+		}
+		if !exists {
+			t.Fatalf("expected migrated column %s.%s", column.table, column.name)
+		}
+	}
+
+	if err := idx.AppendMessage(Message{
+		ID:          "msg-1",
+		SessionID:   "codex_cli:session",
+		TurnID:      "turn-1",
+		Timestamp:   time.Now().UnixNano(),
+		MessageType: "user",
+		ContentText: "hello",
+	}); err != nil {
+		t.Fatalf("append message: %v", err)
+	}
+
+	blobHash, err := s.WriteBlob([]byte("hello\n"))
+	if err != nil {
+		t.Fatalf("write blob: %v", err)
+	}
+	tree := &store.Tree{Entries: []store.TreeEntry{{Path: "hello.txt", Blob: blobHash}}}
+	treeHash, err := s.WriteTree(tree)
+	if err != nil {
+		t.Fatalf("write tree: %v", err)
+	}
+	step := &store.Step{
+		Tree:           treeHash,
+		Causes:         []store.Cause{{ToolName: "Write", ToolUseID: "tool-1"}},
+		SessionID:      "codex_cli:session",
+		Origin:         "codex_cli",
+		TurnID:         "turn-1",
+		TimestampNanos: time.Now().UnixNano(),
+	}
+	stepHash, err := s.WriteStep(step)
+	if err != nil {
+		t.Fatalf("write step: %v", err)
+	}
+	if err := idx.IndexStep(stepHash, step, tree); err != nil {
+		t.Fatalf("index step: %v", err)
+	}
+
+	steps, err := idx.ListSteps("codex_cli:session", 10)
+	if err != nil {
+		t.Fatalf("list steps: %v", err)
+	}
+	if len(steps) != 1 || steps[0].Origin != "codex_cli" || steps[0].TurnID != "turn-1" {
+		t.Fatalf("unexpected migrated step: %#v", steps)
+	}
+}
+
+func TestSessions_NoHeadSessionsAreNotDefaultable(t *testing.T) {
+	root := t.TempDir()
+	s, err := store.Init(root)
+	if err != nil {
+		t.Fatalf("init store: %v", err)
+	}
+	idx, err := Open(s)
+	if err != nil {
+		t.Fatalf("open index: %v", err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	if err := idx.UpsertSession(SessionUpdate{ID: "codex_cli:no-head", Origin: "codex_cli"}); err != nil {
+		t.Fatalf("upsert no-head session: %v", err)
+	}
+
+	allSessions, err := idx.ListAllSessions()
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(allSessions) != 1 {
+		t.Fatalf("expected stored no-head session, got %d", len(allSessions))
+	}
+
+	headedSessions, err := idx.ListHeadedSessions()
+	if err != nil {
+		t.Fatalf("list headed sessions: %v", err)
+	}
+	if len(headedSessions) != 0 {
+		t.Fatalf("no-head sessions should not be defaultable: %#v", headedSessions)
+	}
+
+	if _, err := idx.SessionHead("codex_cli:no-head"); !errors.Is(err, ErrSessionHasNoSteps) {
+		t.Fatalf("SessionHead error = %v, want ErrSessionHasNoSteps", err)
+	}
+}
+
+const legacySchema = `
+CREATE TABLE steps (
+	id          TEXT PRIMARY KEY,
+	parent_id   TEXT,
+	session_id  TEXT NOT NULL,
+	agent_id    TEXT,
+	ts_nanos    INTEGER NOT NULL,
+	tool_name   TEXT NOT NULL,
+	tool_use_id TEXT NOT NULL,
+	tree_hash   TEXT NOT NULL,
+	transcript_hash TEXT
+);
+CREATE TABLE step_files (
+	step_id   TEXT NOT NULL,
+	path      TEXT NOT NULL,
+	blob_hash TEXT NOT NULL,
+	PRIMARY KEY (step_id, path)
+);
+CREATE TABLE sessions (
+	id            TEXT PRIMARY KEY,
+	origin        TEXT NOT NULL,
+	started_at    INTEGER NOT NULL,
+	last_seen_at  INTEGER NOT NULL,
+	head_step_id  TEXT,
+	forked_from_session TEXT,
+	forked_from_step    TEXT,
+	fork_detected_at    INTEGER
+);
+CREATE TABLE session_transcript (
+	session_id           TEXT PRIMARY KEY,
+	last_message_id      TEXT NOT NULL,
+	last_transcript_hash TEXT NOT NULL
+);
+CREATE TABLE messages (
+	id              TEXT PRIMARY KEY,
+	session_id      TEXT NOT NULL,
+	step_id         TEXT,
+	seq_num         INTEGER NOT NULL,
+	timestamp       INTEGER NOT NULL,
+	message_type    TEXT NOT NULL,
+	content_text    TEXT,
+	tool_name       TEXT,
+	tool_use_id     TEXT,
+	tool_input      TEXT,
+	tool_output     TEXT
+);
+CREATE TABLE jsonl_snapshots (
+	session_id      TEXT NOT NULL,
+	captured_at     INTEGER NOT NULL,
+	jsonl_blob      TEXT NOT NULL,
+	PRIMARY KEY (session_id, captured_at)
+);
+`

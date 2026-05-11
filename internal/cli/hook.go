@@ -7,12 +7,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// HookCmd creates the hook command (invoked by Claude Code PostToolUse)
+// HookCmd creates the legacy Claude Code PostToolUse hook command.
 func HookCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:    "hook",
-		Short:  "Process a PostToolUse hook (internal)",
-		Long:   "Internal command invoked by Claude Code after each tool use. Reads payload from stdin and creates a step.",
+		Short:  "Process a legacy PostToolUse hook (internal)",
+		Long:   "Internal legacy command invoked by older Claude Code hook setups.",
 		Hidden: true, // Don't show in help (internal use only)
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return hook.Run(os.Stdin, os.Stdout)

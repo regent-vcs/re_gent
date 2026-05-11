@@ -1,268 +1,130 @@
 # re_gent Testing Guide
 
-Quick guide to test the `rgt` CLI and hook integration.
+Quick checks for the `rgt` CLI and agent hook integrations.
 
 ## Prerequisites
 
 ```bash
-# Build the binary
-cd /Users/shay/Projects/regent
 go build -o rgt ./cmd/rgt
 ```
 
-## Test 1: Basic CLI Commands
+Use the built binary in examples below:
 
 ```bash
-# Initialize a test project
-cd /tmp
-rm -rf regent-test
-mkdir regent-test && cd regent-test
-
-# Initialize with automatic hook configuration (press Y)
-/Users/shay/Projects/regent/rgt init
-# Prompt: Enable automatic tracking in Claude Code? [Y/n]: y
-# Expected: "✓ Configured PostToolUse hook in .claude/settings.json"
-
-# Verify hook was configured
-cat .claude/settings.json
-# Expected: {"hooks":{"PostToolUse":[{"matcher":"","hooks":[{"type":"command","command":"rgt hook"}]}]}}
-
-# Check status
-/Users/shay/Projects/regent/rgt status
-# Expected: "No sessions recorded yet."
-
-# List sessions
-/Users/shay/Projects/regent/rgt sessions
-# Expected: "No sessions recorded yet."
-
-# Try log
-/Users/shay/Projects/regent/rgt log
-# Expected: "No sessions found."
+export RGT=/path/to/re_gent/rgt
 ```
 
-## Test 2: Manual Hook Test
-
-Test the hook without Claude Code by piping a test payload:
+## Basic CLI
 
 ```bash
-cd /tmp/regent-test
+tmp=$(mktemp -d)
+cd "$tmp"
+"$RGT" init --agent both
 
-# Create a test file
-echo "hello from manual test" > test.txt
+"$RGT" status
+"$RGT" sessions
+```
 
-# Create test payload
-cat > /tmp/hook-payload.json << 'EOF'
+Expected results:
+
+- `.regent/` exists.
+- `.claude/settings.json` contains `UserPromptSubmit`, `Stop`, and `PostToolBatch`.
+- `.codex/config.toml` contains `SessionStart`, `UserPromptSubmit`, `PostToolUse`, and `Stop`.
+- `rgt sessions` reports no sessions until an agent hook fires.
+
+Codex may ask you to trust the project and hook commands the first time it loads the project-local config.
+
+## Manual Claude Turn
+
+This exercises the current Claude per-turn flow without starting Claude Code.
+
+```bash
+cd "$tmp"
+echo 'hello' > hello.txt
+
+printf '{"session_id":"claude-manual","cwd":"%s","prompt":"create hello.txt"}' "$PWD" \
+  | "$RGT" message-hook user
+
+cat > /tmp/claude-tool-batch.json <<EOF
 {
-  "session_id": "manual-test-123",
-  "tool_use_id": "tool_manual_1",
-  "tool_name": "Write",
-  "tool_input": {"file_path": "test.txt", "content": "hello from manual test"},
-  "tool_response": {"success": true},
-  "cwd": "/tmp/regent-test",
-  "transcript_path": ""
+  "session_id": "claude-manual",
+  "cwd": "$PWD",
+  "tool_calls": [
+    {
+      "tool_name": "Write",
+      "tool_use_id": "tool_1",
+      "tool_input": {"file_path":"hello.txt","content":"hello"},
+      "tool_response": "ok"
+    }
+  ]
 }
 EOF
+"$RGT" tool-batch-hook < /tmp/claude-tool-batch.json
 
-# Run hook
-/Users/shay/Projects/regent/rgt hook < /tmp/hook-payload.json
+printf '{"session_id":"claude-manual","cwd":"%s","last_assistant_message":"done"}' "$PWD" \
+  | "$RGT" message-hook assistant
 
-# Verify step was created
-/Users/shay/Projects/regent/rgt log --session manual-test-123
-# Expected: Shows 1 step with tool name "Write"
-
-/Users/shay/Projects/regent/rgt sessions
-# Expected: Shows session "manual-test-123"
-
-# Inspect the step
-HASH=$(/Users/shay/Projects/regent/rgt log --session manual-test-123 | grep -o '^[a-f0-9]\{8\}' | head -1)
-/Users/shay/Projects/regent/rgt cat $HASH
-# Expected: JSON showing step with parent, tree, cause, etc.
+"$RGT" log --session claude_code:claude-manual
+"$RGT" sessions
 ```
 
-## Test 3: Multiple Steps Chain
+Expected result: one step is created for the turn, with `origin: claude_code`.
+
+## Manual Codex Turn
+
+This exercises the Codex hook adapter without starting Codex.
 
 ```bash
-cd /tmp/regent-test
+cd "$tmp"
+echo 'codex' > codex.txt
 
-# Create 3 steps manually
-for i in 1 2 3; do
-  echo "step $i" > file$i.txt
-  
-  cat > /tmp/payload$i.json << EOF
+printf '{"hook_event_name":"SessionStart","session_id":"codex-manual","cwd":"%s","model":"gpt-5.5"}' "$PWD" \
+  | "$RGT" codex-hook
+
+printf '{"hook_event_name":"UserPromptSubmit","session_id":"codex-manual","turn_id":"turn-1","cwd":"%s","prompt":"create codex.txt"}' "$PWD" \
+  | "$RGT" codex-hook
+
+cat > /tmp/codex-post-tool.json <<EOF
 {
-  "session_id": "chain-test",
-  "tool_use_id": "tool_$i",
-  "tool_name": "Write",
-  "tool_input": {"file_path": "file$i.txt", "content": "step $i"},
-  "tool_response": {"success": true},
-  "cwd": "/tmp/regent-test",
-  "transcript_path": ""
+  "hook_event_name": "PostToolUse",
+  "session_id": "codex-manual",
+  "turn_id": "turn-1",
+  "cwd": "$PWD",
+  "tool_name": "Bash",
+  "tool_use_id": "call_1",
+  "tool_input": {"command":"printf codex > codex.txt"},
+  "tool_response": "ok"
 }
 EOF
-  
-  /Users/shay/Projects/regent/rgt hook < /tmp/payload$i.json
-  sleep 0.1  # Small delay for timestamp uniqueness
-done
+"$RGT" codex-hook < /tmp/codex-post-tool.json
 
-# Verify chain
-/Users/shay/Projects/regent/rgt log --session chain-test
-# Expected: Shows 3 steps with parent chain
+printf '{"hook_event_name":"Stop","session_id":"codex-manual","turn_id":"turn-1","cwd":"%s","last_assistant_message":"done"}' "$PWD" \
+  | "$RGT" codex-hook
 
-# Verify parent relationships
-/Users/shay/Projects/regent/rgt log --session chain-test | grep "parent:"
-# Each step (except first) should have a parent
+"$RGT" log --session codex_cli:codex-manual --json
+HASH=$("$RGT" log --session codex_cli:codex-manual --oneline | awk 'NR==1 {print $1}')
+"$RGT" show "$HASH"
 ```
 
-## Test 4: Enable Hook in Claude Code
+Expected result: one step is created for the turn, with `origin: codex_cli` and `turn_id: turn-1`.
 
-**For the re_gent project itself (dogfooding):**
-
-1. Open `/Users/shay/Projects/regent/.claude/settings.json`
-
-2. Add the hook configuration:
-   ```json
-   {
-     "hooks": {
-       "PostToolUse": "rgt hook"
-     }
-   }
-   ```
-
-3. Initialize regent in this project:
-   ```bash
-   cd /Users/shay/Projects/regent
-   ./rgt init
-   ```
-
-4. Now this conversation should record steps automatically!
-
-5. Verify it's working:
-   ```bash
-   cd /Users/shay/Projects/regent
-   ./rgt log
-   # Should show recent steps from this conversation
-   
-   ./rgt sessions
-   # Should show current session
-   ```
-
-## Test 5: Real Claude Code Session
-
-In a new project:
+## No-Tool Turn
 
 ```bash
-# Create test project
-mkdir -p /tmp/test-claude-regent
-cd /tmp/test-claude-regent
+printf '{"hook_event_name":"UserPromptSubmit","session_id":"codex-manual","turn_id":"turn-2","cwd":"%s","prompt":"say ok"}' "$PWD" \
+  | "$RGT" codex-hook
+printf '{"hook_event_name":"Stop","session_id":"codex-manual","turn_id":"turn-2","cwd":"%s","last_assistant_message":"ok"}' "$PWD" \
+  | "$RGT" codex-hook
 
-# Initialize regent (accept hook prompt with Y)
-/Users/shay/Projects/regent/rgt init
-# Prompt: Enable automatic tracking in Claude Code? [Y/n]: y
-
-# That's it! Hook is already configured.
-
-# Now start a Claude Code session in this directory
-# Ask Claude to: "Create a file hello.txt with content 'Hello re_gent!'"
-
-# After Claude creates the file, check:
-/Users/shay/Projects/regent/rgt log
-# Should show a step with tool_name "Write"
-
-/Users/shay/Projects/regent/rgt sessions
-# Should show the current Claude session ID
+"$RGT" log --session codex_cli:codex-manual
 ```
 
-## Debugging
+Expected result: no new step is created, and the no-tool messages do not attach to later tool-using turns.
 
-**If steps aren't appearing:**
-
-1. Check hook is configured:
-   ```bash
-   cat .claude/settings.json
-   # Should contain: "PostToolUse": [{"matcher":"","hooks":[{"type":"command","command":"rgt hook"}]}]
-   ```
-
-2. Check for errors:
-   ```bash
-   cat .regent/log/hook-error.log
-   # Should be empty or show specific errors
-   ```
-
-3. Test hook manually:
-   ```bash
-   echo '{"session_id":"debug","tool_use_id":"t1","tool_name":"Test","tool_input":{},"tool_response":{},"cwd":"'$(pwd)'","transcript_path":""}' | /Users/shay/Projects/regent/rgt hook
-   
-   /Users/shay/Projects/regent/rgt log --session debug
-   ```
-
-4. Verify .regent exists:
-   ```bash
-   ls -la .regent/
-   ```
-
-**If hook seems to hang:**
-- Add `-v` for verbose logging (future enhancement)
-- Check for blocking operations
-- Hook should complete in <100ms
-
-## Expected Output
-
-### Successful `rgt log`:
-```
-Session: claude-code-abc123 (3 steps)
-
-a1b2c3d4  2026-04-30 12:30:15  Write
-    tool_use_id: tool_use_abc123
-    parent: 9f8e7d6c
-
-9f8e7d6c  2026-04-30 12:30:10  Edit
-    tool_use_id: tool_use_abc122
-    parent: 5e4d3c2b
-
-5e4d3c2b  2026-04-30 12:30:05  Bash
-    tool_use_id: tool_use_abc121
-    parent: 
-```
-
-### Successful `rgt sessions`:
-```
-Total sessions: 1
-
-Session: claude-code-abc123
-  Origin:     claude_code
-  Started:    2026-04-30 12:30:00
-  Last seen:  2026-04-30 12:30:15
-  Head:       a1b2c3d4e5f6g7h8
-```
-
-### Successful `rgt cat <step-hash>`:
-```json
-{
-  "parent": "9f8e7d6c5b4a3210",
-  "tree": "fedcba9876543210",
-  "cause": {
-    "tool_use_id": "tool_use_abc123",
-    "tool_name": "Write",
-    "args_blob": "abcdef1234567890",
-    "result_blob": "0987654321fedcba"
-  },
-  "session_id": "claude-code-abc123",
-  "ts": 1714483815000000000
-}
-```
-
-## Running Automated Tests
+## Full Verification
 
 ```bash
-# Run all tests
 go test ./...
-
-# Run with race detector
-go test -race ./...
-
-# Run hook tests specifically
-go test -v ./internal/hook
-
-# Run integration tests
-go test -v ./test
 ```
+
+Before opening a PR, also run any available lint or race checks used by the project.

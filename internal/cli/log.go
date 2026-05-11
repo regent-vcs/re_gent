@@ -53,7 +53,7 @@ func LogCmd() *cobra.Command {
 			}
 
 			if sessionID == "" {
-				sessions, err := idx.ListAllSessions()
+				sessions, err := idx.ListHeadedSessions()
 				if err != nil {
 					return err
 				}

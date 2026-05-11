@@ -8,7 +8,6 @@ Display full details for a step including:
 - Tool call (name, arguments)
 - Tool result
 - Conversation messages
-- File changes
 
 Show step details:
 ```bash

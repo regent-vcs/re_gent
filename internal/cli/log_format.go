@@ -8,6 +8,7 @@ import (
 
 	"github.com/regent-vcs/regent/internal/conversation"
 	"github.com/regent-vcs/regent/internal/index"
+	"github.com/regent-vcs/regent/internal/store"
 	"github.com/regent-vcs/regent/internal/style"
 )
 
@@ -24,6 +25,7 @@ const (
 // EnrichedStep contains a step with all its related data
 type EnrichedStep struct {
 	StepInfo    index.StepInfo
+	Causes      []EnrichedCause
 	Files       []string
 	FileDiffs   []FileDiff // Actual file changes (parent → current)
 	Args        json.RawMessage
@@ -31,6 +33,12 @@ type EnrichedStep struct {
 	Duration    time.Duration
 	Messages    []json.RawMessage // Conversation transcript
 	GraphPrefix string            // ASCII graph line prefix (if graph enabled)
+}
+
+type EnrichedCause struct {
+	Cause  store.Cause
+	Args   json.RawMessage
+	Result json.RawMessage
 }
 
 // FileDiff represents a file change between steps
@@ -107,7 +115,7 @@ func (f *DefaultFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 
 		// Show step hash and timestamp
 		fmt.Fprintf(w, "%s %s  %s",
-			style.Label(step.StepInfo.ToolName),
+			style.Label(stepToolLabel(step)),
 			style.Hash(string(step.StepInfo.Hash[:8])),
 			style.Timestamp(step.StepInfo.Timestamp.Format("15:04:05")))
 
@@ -176,7 +184,7 @@ func (f *OnelineFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 		// Build line
 		line := fmt.Sprintf("%s %s %s",
 			string(step.StepInfo.Hash[:8]),
-			step.StepInfo.ToolName,
+			stepToolLabel(step),
 			summary)
 
 		// Append file stats if requested
@@ -201,14 +209,24 @@ type jsonStep struct {
 	Hash      string            `json:"hash"`
 	Parent    string            `json:"parent,omitempty"`
 	Timestamp string            `json:"timestamp"`
+	Origin    string            `json:"origin,omitempty"`
+	TurnID    string            `json:"turn_id,omitempty"`
 	Tool      string            `json:"tool"`
 	ToolUseID string            `json:"tool_use_id"`
+	Causes    []jsonCause       `json:"causes,omitempty"`
 	Files     []string          `json:"files,omitempty"`
 	FileDiffs []FileDiff        `json:"file_diffs,omitempty"`
 	Args      json.RawMessage   `json:"args,omitempty"`
 	Result    json.RawMessage   `json:"result,omitempty"`
 	Duration  float64           `json:"duration_seconds,omitempty"`
 	Messages  []json.RawMessage `json:"messages,omitempty"`
+}
+
+type jsonCause struct {
+	Tool      string          `json:"tool"`
+	ToolUseID string          `json:"tool_use_id"`
+	Args      json.RawMessage `json:"args,omitempty"`
+	Result    json.RawMessage `json:"result,omitempty"`
 }
 
 func (f *JSONFormatter) Format(steps []EnrichedStep, sessionID string, showConversation bool, showFiles bool, w io.Writer) error {
@@ -225,6 +243,8 @@ func (f *JSONFormatter) Format(steps []EnrichedStep, sessionID string, showConve
 			Hash:      string(step.StepInfo.Hash),
 			Parent:    string(step.StepInfo.ParentHash),
 			Timestamp: step.StepInfo.Timestamp.Format(time.RFC3339),
+			Origin:    step.StepInfo.Origin,
+			TurnID:    step.StepInfo.TurnID,
 			Tool:      step.StepInfo.ToolName,
 			ToolUseID: step.StepInfo.ToolUseID,
 			Files:     step.Files,
@@ -239,6 +259,17 @@ func (f *JSONFormatter) Format(steps []EnrichedStep, sessionID string, showConve
 
 		if showConversation {
 			js.Messages = step.Messages
+		}
+		if len(step.Causes) > 0 {
+			js.Causes = make([]jsonCause, 0, len(step.Causes))
+			for _, cause := range step.Causes {
+				js.Causes = append(js.Causes, jsonCause{
+					Tool:      cause.Cause.ToolName,
+					ToolUseID: cause.Cause.ToolUseID,
+					Args:      cause.Args,
+					Result:    cause.Result,
+				})
+			}
 		}
 
 		output.Steps[i] = js
@@ -261,7 +292,7 @@ func (f *StatFormatter) Format(steps []EnrichedStep, sessionID string, showConve
 	for _, step := range steps {
 		fmt.Fprintf(w, "%s  %s  %s\n",
 			style.Hash(string(step.StepInfo.Hash[:8])),
-			step.StepInfo.ToolName,
+			stepToolLabel(step),
 			style.Timestamp(step.StepInfo.Timestamp.Format("15:04:05")))
 
 		// Show file diffs with stats if --files flag
@@ -348,4 +379,11 @@ func getSummary(step EnrichedStep) string {
 	}
 
 	return ""
+}
+
+func stepToolLabel(step EnrichedStep) string {
+	if len(step.Causes) <= 1 {
+		return step.StepInfo.ToolName
+	}
+	return fmt.Sprintf("%s +%d", step.StepInfo.ToolName, len(step.Causes)-1)
 }
