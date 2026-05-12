@@ -20,6 +20,7 @@
 [![CI Status](https://img.shields.io/github/actions/workflow/status/regent-vcs/regent/ci.yml?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/regent-vcs/regent/actions/workflows/ci.yml)
 [![Contributions Welcome](https://img.shields.io/badge/Contributions-Welcome-10b981?style=for-the-badge&logo=github)](CONTRIBUTING.md)
 [![Claude Code Compatible](https://img.shields.io/badge/Claude%20Code-Compatible-6366f1?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/regent-vcs/regent)
+[![Discord](https://img.shields.io/discord/1503732569622053004?style=for-the-badge&logo=discord&logoColor=white&color=5865F2)](https://discord.gg/Unf24KMh)
 
 </div>
 
@@ -416,6 +417,7 @@ Contributions are welcome! re_gent is built in public and we actively review PRs
     <sub>Built by <a href="https://github.com/regent-vcs/regent/graphs/contributors">contributors</a></sub>
   </p>
   <p>
+    <a href="https://discord.gg/Unf24KMh">Discord</a> •
     <a href="https://github.com/regent-vcs/regent/discussions">Discussions</a> •
     <a href="https://github.com/regent-vcs/regent/issues">Issues</a> •
     <a href="POC.md">Technical Spec</a>
