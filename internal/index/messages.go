@@ -3,6 +3,7 @@ package index
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/regent-vcs/regent/internal/store"
@@ -65,6 +66,122 @@ func (idx *DB) AppendMessage(msg Message) error {
 		nullInt64(msg.ProcessedAt), msg.MessageType,
 		nullString(msg.ContentText), nullString(msg.ToolName), nullString(msg.ToolUseID),
 		nullString(msg.ToolInput), nullString(msg.ToolOutput), msg.SessionID)
+	return err
+}
+
+// AppendToolUseMessages atomically stores a tool call/result pair once.
+func (idx *DB) AppendToolUseMessages(call, result Message) (bool, error) {
+	if call.SessionID == "" {
+		return false, fmt.Errorf("session id is required")
+	}
+	if call.ToolUseID == "" {
+		return false, fmt.Errorf("tool use id is required")
+	}
+	if call.MessageType != "tool_call" {
+		return false, fmt.Errorf("call message type must be tool_call")
+	}
+	if result.MessageType != "tool_result" {
+		return false, fmt.Errorf("result message type must be tool_result")
+	}
+	if result.SessionID != call.SessionID {
+		return false, fmt.Errorf("tool result session does not match call session")
+	}
+	if result.TurnID != call.TurnID {
+		return false, fmt.Errorf("tool result turn does not match call turn")
+	}
+	if result.ToolUseID != call.ToolUseID {
+		return false, fmt.Errorf("tool result id does not match call id")
+	}
+
+	for attempt := 0; attempt < 8; attempt++ {
+		ok, err := idx.appendToolUseMessagesOnce(call, result)
+		if err == nil || !isSQLiteBusy(err) {
+			return ok, err
+		}
+		time.Sleep(sqliteBusyBackoff(attempt))
+	}
+	return false, fmt.Errorf("append tool use messages: database remained busy")
+}
+
+func (idx *DB) appendToolUseMessagesOnce(call, result Message) (bool, error) {
+	tx, err := idx.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	guard, err := tx.Exec(`
+		INSERT INTO tool_uses (session_id, turn_id, tool_use_id)
+		VALUES (?, ?, ?)
+		ON CONFLICT DO NOTHING
+	`, call.SessionID, call.TurnID, call.ToolUseID)
+	if err != nil {
+		return false, fmt.Errorf("insert tool use guard: %w", err)
+	}
+	if !rowsChanged(guard) {
+		return false, nil
+	}
+
+	seq, err := nextMessageSeq(tx, call.SessionID)
+	if err != nil {
+		return false, fmt.Errorf("next message sequence: %w", err)
+	}
+	call.SeqNum = seq
+	result.SeqNum = seq + 1
+
+	if err := insertMessage(tx, call); err != nil {
+		return false, fmt.Errorf("insert tool call: %w", err)
+	}
+	if err := insertMessage(tx, result); err != nil {
+		return false, fmt.Errorf("insert tool result: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func isSQLiteBusy(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "SQLITE_BUSY") || strings.Contains(msg, "database is locked")
+}
+
+func sqliteBusyBackoff(attempt int) time.Duration {
+	backoff := 5 * time.Millisecond
+	for i := 0; i < attempt; i++ {
+		backoff *= 2
+		if backoff >= 100*time.Millisecond {
+			return 100 * time.Millisecond
+		}
+	}
+	return backoff
+}
+
+func nextMessageSeq(tx *sql.Tx, sessionID string) (int, error) {
+	var maxSeq sql.NullInt64
+	err := tx.QueryRow(`SELECT MAX(seq_num) FROM messages WHERE session_id = ?`, sessionID).Scan(&maxSeq)
+	if err != nil {
+		return 0, err
+	}
+	if !maxSeq.Valid {
+		return 0, nil
+	}
+	return int(maxSeq.Int64) + 1, nil
+}
+
+func insertMessage(tx *sql.Tx, msg Message) error {
+	_, err := tx.Exec(`
+		INSERT INTO messages (id, session_id, step_id, turn_id, seq_num, timestamp, processed_at, message_type,
+		                      content_text, tool_name, tool_use_id, tool_input, tool_output)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, msg.ID, msg.SessionID, nullString(msg.StepID), nullString(msg.TurnID), msg.SeqNum, msg.Timestamp,
+		nullInt64(msg.ProcessedAt), msg.MessageType,
+		nullString(msg.ContentText), nullString(msg.ToolName), nullString(msg.ToolUseID),
+		nullString(msg.ToolInput), nullString(msg.ToolOutput))
 	return err
 }
 

@@ -33,6 +33,7 @@ type EnrichedStep struct {
 	Duration    time.Duration
 	Messages    []json.RawMessage // Conversation transcript
 	GraphPrefix string            // ASCII graph line prefix (if graph enabled)
+	Warnings    []string          // Non-fatal data recovery or display issues
 }
 
 type EnrichedCause struct {
@@ -101,8 +102,9 @@ func (f *DefaultFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 			formatted := conversation.FormatConversationWithHash(conv, graphPrefix, style.Hash(string(step.StepInfo.Hash[:8])), timestamp)
 			if formatted != "" {
 				fmt.Fprint(w, formatted)
-				fmt.Fprintln(w) // Blank line after conversation
 			}
+			printWarnings(w, step.Warnings)
+			fmt.Fprintln(w) // Blank line after conversation
 			continue
 		}
 
@@ -123,6 +125,7 @@ func (f *DefaultFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 			fmt.Fprintf(w, "  %s", style.DimText(fmt.Sprintf("(%s)", formatDuration(step.Duration))))
 		}
 		fmt.Fprintln(w)
+		printWarnings(w, step.Warnings)
 
 		// Show what the tool did (command, file, etc.) - only if NOT in conversation mode
 		if !showConversation {
@@ -220,6 +223,7 @@ type jsonStep struct {
 	Result    json.RawMessage   `json:"result,omitempty"`
 	Duration  float64           `json:"duration_seconds,omitempty"`
 	Messages  []json.RawMessage `json:"messages,omitempty"`
+	Warnings  []string          `json:"warnings,omitempty"`
 }
 
 type jsonCause struct {
@@ -259,6 +263,9 @@ func (f *JSONFormatter) Format(steps []EnrichedStep, sessionID string, showConve
 
 		if showConversation {
 			js.Messages = step.Messages
+		}
+		if len(step.Warnings) > 0 {
+			js.Warnings = step.Warnings
 		}
 		if len(step.Causes) > 0 {
 			js.Causes = make([]jsonCause, 0, len(step.Causes))
@@ -323,6 +330,7 @@ func (f *StatFormatter) Format(steps []EnrichedStep, sessionID string, showConve
 			formatted := FormatMessagesHumanReadable(step.Messages, " ")
 			fmt.Fprint(w, formatted)
 		}
+		printWarnings(w, step.Warnings)
 
 		fmt.Fprintln(w)
 	}
@@ -340,6 +348,12 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
 	}
 	return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+}
+
+func printWarnings(w io.Writer, warnings []string) {
+	for _, warning := range warnings {
+		fmt.Fprintf(w, "  %s\n", style.Warning(warning))
+	}
 }
 
 func formatFileStat(fd FileDiff) string {

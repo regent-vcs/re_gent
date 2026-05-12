@@ -254,25 +254,22 @@ func TestPhase1Acceptance(t *testing.T) {
 
 // TestCLICommands tests the actual rgt binary (integration test)
 func TestCLICommands(t *testing.T) {
-	// Find the rgt binary (look in project root)
 	cwd, _ := os.Getwd()
 	projectRoot := filepath.Dir(cwd) // test/ -> regent/
-	rgtPath := filepath.Join(projectRoot, "rgt")
-	if _, err := os.Stat(rgtPath); os.IsNotExist(err) {
-		t.Skip("rgt binary not found, run 'go build -o rgt ./cmd/rgt' first")
-	}
+	rgtPath := buildRGTBinary(t, projectRoot)
 
 	workspace := t.TempDir()
 
 	// Test init
-	cmd := exec.Command(rgtPath, "init")
+	cmd := exec.Command(rgtPath, "init", "--agent", "both")
 	cmd.Dir = workspace
+	cmd.Stdin = strings.NewReader("\n\n")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("rgt init failed: %v\nOutput: %s", err, output)
 	}
 
-	if !strings.Contains(string(output), "Initialization Complete") {
+	if !strings.Contains(string(output), "Initialization complete") {
 		t.Errorf("Expected success message, got: %s", output)
 	}
 
@@ -302,4 +299,17 @@ func TestCLICommands(t *testing.T) {
 	}
 
 	t.Log("✓ CLI commands working correctly")
+}
+
+func buildRGTBinary(t *testing.T, projectRoot string) string {
+	t.Helper()
+
+	rgtPath := filepath.Join(t.TempDir(), "rgt")
+	cmd := exec.Command("go", "build", "-o", rgtPath, "./cmd/rgt")
+	cmd.Dir = projectRoot
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build rgt binary: %v\nOutput: %s", err, output)
+	}
+	return rgtPath
 }

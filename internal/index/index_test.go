@@ -863,6 +863,31 @@ func TestRenameSession_MovesLegacyRowsToCanonicalID(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
+	ok, err := idx.AppendToolUseMessages(Message{
+		ID:          "call-1",
+		SessionID:   oldID,
+		TurnID:      "turn-1",
+		Timestamp:   time.Now().UnixNano(),
+		MessageType: "tool_call",
+		ToolName:    "Write",
+		ToolUseID:   "tool-1",
+		ToolInput:   "args",
+	}, Message{
+		ID:          "result-1",
+		SessionID:   oldID,
+		TurnID:      "turn-1",
+		Timestamp:   time.Now().UnixNano(),
+		MessageType: "tool_result",
+		ToolName:    "Write",
+		ToolUseID:   "tool-1",
+		ToolOutput:  "result",
+	})
+	if err != nil {
+		t.Fatalf("append tool use messages: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected first tool use append to insert messages")
+	}
 
 	blobHash, err := s.WriteBlob([]byte("hello\n"))
 	if err != nil {
@@ -913,8 +938,33 @@ func TestRenameSession_MovesLegacyRowsToCanonicalID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get renamed messages: %v", err)
 	}
-	if len(messages) != 1 || messages[0].SessionID != newID {
+	if len(messages) != 3 || messages[0].SessionID != newID || messages[1].SessionID != newID || messages[2].SessionID != newID {
 		t.Fatalf("unexpected renamed messages: %#v", messages)
+	}
+	ok, err = idx.AppendToolUseMessages(Message{
+		ID:          "call-duplicate",
+		SessionID:   newID,
+		TurnID:      "turn-1",
+		Timestamp:   time.Now().UnixNano(),
+		MessageType: "tool_call",
+		ToolName:    "Write",
+		ToolUseID:   "tool-1",
+		ToolInput:   "args",
+	}, Message{
+		ID:          "result-duplicate",
+		SessionID:   newID,
+		TurnID:      "turn-1",
+		Timestamp:   time.Now().UnixNano(),
+		MessageType: "tool_result",
+		ToolName:    "Write",
+		ToolUseID:   "tool-1",
+		ToolOutput:  "result",
+	})
+	if err != nil {
+		t.Fatalf("append duplicate canonical tool use: %v", err)
+	}
+	if ok {
+		t.Fatal("renamed tool use guard did not suppress duplicate append")
 	}
 	if oldMessages, err := idx.GetAllPendingMessages(oldID); err != nil || len(oldMessages) != 0 {
 		t.Fatalf("old messages remain: messages=%#v err=%v", oldMessages, err)

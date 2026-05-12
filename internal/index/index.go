@@ -120,6 +120,13 @@ func createSchema(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_messages_step ON messages(step_id);
 	CREATE INDEX IF NOT EXISTS idx_messages_tool_use ON messages(tool_use_id);
 
+	CREATE TABLE IF NOT EXISTS tool_uses (
+		session_id  TEXT NOT NULL,
+		turn_id     TEXT NOT NULL,
+		tool_use_id TEXT NOT NULL,
+		PRIMARY KEY (session_id, turn_id, tool_use_id)
+	);
+
 	CREATE TABLE IF NOT EXISTS jsonl_snapshots (
 		session_id      TEXT NOT NULL,
 		captured_at     INTEGER NOT NULL,
@@ -181,6 +188,17 @@ func migrateSchema(db *sql.DB) error {
 		if _, err := db.Exec(stmt); err != nil {
 			return fmt.Errorf("migration failed: %s: %w", stmt, err)
 		}
+	}
+
+	if _, err := db.Exec(`
+		INSERT OR IGNORE INTO tool_uses (session_id, turn_id, tool_use_id)
+		SELECT session_id, COALESCE(turn_id, ''), tool_use_id
+		FROM messages
+		WHERE message_type = 'tool_call'
+		  AND tool_use_id IS NOT NULL
+		  AND tool_use_id != ''
+	`); err != nil {
+		return fmt.Errorf("backfill tool uses: %w", err)
 	}
 
 	return nil
@@ -338,6 +356,22 @@ func (idx *DB) RenameSession(oldID, newID, origin string) (bool, error) {
 	}
 
 	result, err := tx.Exec(`
+		INSERT OR IGNORE INTO tool_uses (session_id, turn_id, tool_use_id)
+		SELECT ?, turn_id, tool_use_id
+		FROM tool_uses
+		WHERE session_id = ?
+	`, newID, oldID)
+	if err != nil {
+		return false, fmt.Errorf("copy tool uses: %w", err)
+	}
+	changed = rowsChanged(result) || changed
+	result, err = tx.Exec(`DELETE FROM tool_uses WHERE session_id = ?`, oldID)
+	if err != nil {
+		return false, fmt.Errorf("delete old tool uses: %w", err)
+	}
+	changed = rowsChanged(result) || changed
+
+	result, err = tx.Exec(`
 		INSERT OR IGNORE INTO session_transcript (session_id, last_message_id, last_transcript_hash)
 		SELECT ?, last_message_id, last_transcript_hash
 		FROM session_transcript

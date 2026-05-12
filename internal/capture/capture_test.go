@@ -2,6 +2,8 @@ package capture
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -617,6 +619,9 @@ func TestRecorder_AdoptsLegacyRawSessionID(t *testing.T) {
 	}
 	if _, err := recorder.Store.ReadRef("sessions/" + canonicalID); err != nil {
 		t.Fatalf("canonical ref was not adopted: %v", err)
+	}
+	if _, err := recorder.Store.ReadRef("sessions/" + legacySessionID); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("legacy raw ref should be removed after adoption, err=%v", err)
 	}
 }
 

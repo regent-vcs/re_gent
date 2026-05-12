@@ -166,13 +166,6 @@ func (r *Recorder) RecordToolUse(event ToolUse) error {
 	if err := r.upsertNormalizedSession(session); err != nil {
 		return err
 	}
-	seen, err := r.toolUseExists(session.SessionID, scope, event.ToolUseID)
-	if err != nil {
-		return fmt.Errorf("check existing tool use: %w", err)
-	}
-	if seen {
-		return nil
-	}
 
 	inputHash, err := r.Store.WriteBlob(event.ToolInput)
 	if err != nil {
@@ -198,9 +191,6 @@ func (r *Recorder) RecordToolUse(event ToolUse) error {
 		ToolUseID:   event.ToolUseID,
 		ToolInput:   string(inputHash),
 	}
-	if err := r.Index.AppendMessage(call); err != nil {
-		return fmt.Errorf("insert tool call: %w", err)
-	}
 
 	result := index.Message{
 		ID:          newMessageID("result"),
@@ -212,8 +202,8 @@ func (r *Recorder) RecordToolUse(event ToolUse) error {
 		ToolUseID:   event.ToolUseID,
 		ToolOutput:  string(outputHash),
 	}
-	if err := r.Index.AppendMessage(result); err != nil {
-		return fmt.Errorf("insert tool result: %w", err)
+	if _, err := r.Index.AppendToolUseMessages(call, result); err != nil {
+		return fmt.Errorf("insert tool use messages: %w", err)
 	}
 
 	return nil
@@ -303,30 +293,61 @@ func (r *Recorder) adoptLegacySession(session SessionMetadata) error {
 		return nil
 	}
 
+	legacyHead, err := r.Store.ReadRef("sessions/" + session.externalID)
+	legacyRefExists := err == nil
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("read legacy session ref: %w", err)
+		}
+	}
+
+	if legacyRefExists {
+		canonicalHead, err := r.Store.ReadRef("sessions/" + session.SessionID)
+		switch {
+		case err == nil:
+			if canonicalHead != legacyHead {
+				logHookError(r.Store, fmt.Sprintf("archiving divergent legacy session ref %s -> %s", session.externalID, session.SessionID))
+				if archiveErr := r.archiveLegacySessionRef(session.externalID, legacyHead); archiveErr != nil {
+					return archiveErr
+				}
+			}
+		case errors.Is(err, fs.ErrNotExist):
+			if err := r.Store.UpdateRef("sessions/"+session.SessionID, "", legacyHead); err != nil && !errors.Is(err, store.ErrRefConflict) {
+				return fmt.Errorf("write canonical session ref: %w", err)
+			}
+			logDebug(r.Store, fmt.Sprintf("adopted legacy session ref %s -> %s", session.externalID, session.SessionID))
+		default:
+			return fmt.Errorf("read canonical session ref: %w", err)
+		}
+
+		if err := r.Store.DeleteRef("sessions/"+session.externalID, legacyHead); err != nil && !errors.Is(err, store.ErrRefConflict) {
+			return fmt.Errorf("delete legacy session ref: %w", err)
+		}
+	}
+
 	changed, err := r.Index.RenameSession(session.externalID, session.SessionID, session.Origin)
 	if err != nil {
 		return fmt.Errorf("adopt legacy session index: %w", err)
 	}
-
-	legacyHead, err := r.Store.ReadRef("sessions/" + session.externalID)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			if changed {
-				logDebug(r.Store, fmt.Sprintf("adopted legacy session index %s -> %s", session.externalID, session.SessionID))
-			}
-			return nil
-		}
-		return fmt.Errorf("read legacy session ref: %w", err)
+	if changed {
+		logDebug(r.Store, fmt.Sprintf("adopted legacy session index %s -> %s", session.externalID, session.SessionID))
 	}
+	return nil
+}
 
-	if _, err := r.Store.ReadRef("sessions/" + session.SessionID); err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("read canonical session ref: %w", err)
+func (r *Recorder) archiveLegacySessionRef(externalID string, head store.Hash) error {
+	archiveRef := "legacy-sessions/" + externalID
+	if err := r.Store.UpdateRef(archiveRef, "", head); err != nil {
+		if !errors.Is(err, store.ErrRefConflict) {
+			return fmt.Errorf("archive legacy session ref: %w", err)
 		}
-		if err := r.Store.UpdateRef("sessions/"+session.SessionID, "", legacyHead); err != nil && !errors.Is(err, store.ErrRefConflict) {
-			return fmt.Errorf("write canonical session ref: %w", err)
+		archivedHead, readErr := r.Store.ReadRef(archiveRef)
+		if readErr != nil {
+			return fmt.Errorf("read archived legacy session ref: %w", readErr)
 		}
-		logDebug(r.Store, fmt.Sprintf("adopted legacy session ref %s -> %s", session.externalID, session.SessionID))
+		if archivedHead != head {
+			return fmt.Errorf("archive legacy session ref: %w", store.ErrRefConflict)
+		}
 	}
 	return nil
 }
@@ -472,10 +493,6 @@ func (r *Recorder) markPendingMessagesProcessed(sessionID string, scope turnScop
 		return r.Index.MarkAllPendingMessagesProcessed(sessionID, processedAt)
 	}
 	return r.Index.MarkPendingMessagesProcessed(sessionID, scope.id, processedAt)
-}
-
-func (r *Recorder) toolUseExists(sessionID string, scope turnScope, toolUseID string) (bool, error) {
-	return r.Index.ToolUseExists(sessionID, scope.id, toolUseID, scope.allTurns)
 }
 
 func causesFromMessages(messages []index.Message) []store.Cause {

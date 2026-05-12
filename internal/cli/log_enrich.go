@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -29,23 +30,29 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 
 	// Render graph if requested
 	var graphPrefixes []string
+	var graphWarning string
 	if renderGraph {
 		var err error
 		graphPrefixes, err = RenderGraph(steps, s)
 		if err != nil {
-			// Don't fail entirely if graph rendering fails
-			// Just log and continue without graph
+			graphWarning = fmt.Sprintf("render graph: %v", err)
 			graphPrefixes = nil
 		}
 	}
 
 	for i, stepInfo := range steps {
+		var warnings []string
+		if i == 0 && graphWarning != "" {
+			warnings = append(warnings, graphWarning)
+		}
+
 		// Read the full step to get cause details
 		step, err := s.ReadStep(stepInfo.Hash)
 		if err != nil {
-			// If we can't read the step, just include basic info
+			warnings = append(warnings, fmt.Sprintf("read step %s: %v", stepInfo.Hash, err))
 			enriched[i] = EnrichedStep{
 				StepInfo: stepInfo,
+				Warnings: warnings,
 			}
 			continue
 		}
@@ -64,12 +71,16 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 				argsData, err := s.ReadBlob(cause.ArgsBlob)
 				if err == nil {
 					causeArgs = rawJSONForOutput(argsData)
+				} else {
+					warnings = append(warnings, fmt.Sprintf("read tool args blob %s: %v", cause.ArgsBlob, err))
 				}
 			}
 			if cause.ResultBlob != "" {
 				resultData, err := s.ReadBlob(cause.ResultBlob)
 				if err == nil {
 					causeResult = rawJSONForOutput(resultData)
+				} else {
+					warnings = append(warnings, fmt.Sprintf("read tool result blob %s: %v", cause.ResultBlob, err))
 				}
 			}
 			if i == 0 {
@@ -95,7 +106,9 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 		// Fetch conversation messages from database
 		var messages []json.RawMessage
 		dbMessages, err := idx.GetMessagesForStep(stepInfo.Hash)
-		if err == nil && len(dbMessages) > 0 {
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("read indexed messages: %v", err))
+		} else if len(dbMessages) > 0 {
 			// Group messages: collect tool_use blocks and embed them in assistant message
 			var currentContent []map[string]interface{}
 			var currentRole string
@@ -128,10 +141,12 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 					if msg.ToolInput != "" {
 						inputData, err := s.ReadBlob(store.Hash(msg.ToolInput))
 						if err != nil {
+							warnings = append(warnings, fmt.Sprintf("read tool input blob %s: %v", msg.ToolInput, err))
 							continue
 						}
 						var inputValue interface{}
 						if err := json.Unmarshal(rawJSONForOutput(inputData), &inputValue); err != nil {
+							warnings = append(warnings, fmt.Sprintf("parse tool input blob %s: %v", msg.ToolInput, err))
 							continue
 						}
 
@@ -163,6 +178,8 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 			transcriptMsgs, err := s.ReconstructTranscript(step.Transcript)
 			if err == nil {
 				messages = transcriptMsgs
+			} else {
+				warnings = append(warnings, fmt.Sprintf("reconstruct transcript %s: %v", step.Transcript, err))
 			}
 		}
 
@@ -188,8 +205,9 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 						IsBinary:  d.IsBinary,
 					}
 				}
+			} else {
+				warnings = append(warnings, fmt.Sprintf("compute file diff: %v", err))
 			}
-			// Silently skip if file diff computation fails (don't fail the whole log)
 		}
 
 		// Add graph prefix if available
@@ -208,6 +226,7 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 			Duration:    duration,
 			Messages:    messages,
 			GraphPrefix: graphPrefix,
+			Warnings:    warnings,
 		}
 	}
 
