@@ -34,6 +34,22 @@ jobs:
       - name: Run tests with race detector
         run: go test -race ./...
 
+      - name: Run tests with coverage
+        run: go test -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Display coverage report
+        run: go tool cover -func=coverage.out | tail -20
+
+      - name: Check coverage threshold
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total: | awk '{print substr($3, 1, length($3)-1)}')
+          echo "Total coverage: ${COVERAGE}%"
+          # Fail if coverage is below 40%
+          if (( $(echo "$COVERAGE < 40" | bc -l) )); then
+            echo "Coverage is below 40% threshold"
+            exit 1
+          fi
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
