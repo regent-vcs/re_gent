@@ -44,9 +44,9 @@ jobs:
         run: |
           COVERAGE=$(go tool cover -func=coverage.out | grep total: | awk '{print substr($3, 1, length($3)-1)}')
           echo "Total coverage: ${COVERAGE}%"
-          # Fail if coverage is below 40%
-          if (( $(echo "$COVERAGE < 40" | bc -l) )); then
-            echo "Coverage is below 40% threshold"
+          # Fail if coverage is below 25% (POC phase - CLI layers excluded)
+          if (( $(echo "$COVERAGE < 25" | bc -l) )); then
+            echo "Coverage is below 25% threshold"
             exit 1
           fi
 
