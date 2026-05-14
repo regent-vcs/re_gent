@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -253,6 +254,13 @@ func extractFilesFromToolArgs(toolName string, args json.RawMessage) []string {
 
 	var argsMap map[string]interface{}
 	if err := json.Unmarshal(args, &argsMap); err != nil {
+		if strings.EqualFold(toolName, "apply_patch") {
+			var patchText string
+			if err := json.Unmarshal(args, &patchText); err == nil {
+				return extractFilesFromPatch(patchText)
+			}
+			return extractFilesFromPatch(string(args))
+		}
 		return []string{}
 	}
 
@@ -268,6 +276,10 @@ func extractFilesFromToolArgs(toolName string, args json.RawMessage) []string {
 	case "Bash":
 		// Bash doesn't directly specify files, leave empty
 		// Could potentially parse from command, but that's fragile
+	case "apply_patch":
+		if input, ok := argsMap["input"].(string); ok && input != "" {
+			files = append(files, extractFilesFromPatch(input)...)
+		}
 	default:
 		files = append(files, extractPathFields(argsMap)...)
 	}
@@ -294,8 +306,8 @@ func extractPathFields(argsMap map[string]interface{}) []string {
 
 // makeRelativePath converts absolute paths to relative paths from cwd
 func makeRelativePath(path string) string {
-	// If path doesn't start with /, it's already relative
-	if len(path) == 0 || path[0] != '/' {
+	// If path isn't absolute, it's already relative.
+	if len(path) == 0 || !filepath.IsAbs(path) {
 		return path
 	}
 
@@ -306,10 +318,39 @@ func makeRelativePath(path string) string {
 	}
 
 	// If path is under cwd, make it relative
-	if strings.HasPrefix(path, cwd+"/") {
-		return strings.TrimPrefix(path, cwd+"/")
+	cleanPath := filepath.Clean(path)
+	cleanCWD := filepath.Clean(cwd)
+	if rel, err := filepath.Rel(cleanCWD, cleanPath); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(rel)
 	}
 
 	// Otherwise return as-is
 	return path
+}
+
+func extractFilesFromPatch(patch string) []string {
+	lines := strings.Split(strings.ReplaceAll(patch, "\r\n", "\n"), "\n")
+	seen := map[string]struct{}{}
+	var files []string
+	for _, line := range lines {
+		var path string
+		switch {
+		case strings.HasPrefix(line, "*** Add File: "):
+			path = strings.TrimSpace(strings.TrimPrefix(line, "*** Add File: "))
+		case strings.HasPrefix(line, "*** Delete File: "):
+			path = strings.TrimSpace(strings.TrimPrefix(line, "*** Delete File: "))
+		case strings.HasPrefix(line, "*** Update File: "):
+			path = strings.TrimSpace(strings.TrimPrefix(line, "*** Update File: "))
+		}
+		path = strings.TrimPrefix(filepath.ToSlash(path), "./")
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		files = append(files, path)
+	}
+	return files
 }

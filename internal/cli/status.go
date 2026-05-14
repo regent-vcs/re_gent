@@ -70,21 +70,16 @@ func StatusCmd() *cobra.Command {
 
 // validateConsistency checks that refs and database are in sync
 func validateConsistency(s *store.Store, idx *index.DB) error {
-	// Get all session refs
-	refFiles, err := filepath.Glob(filepath.Join(s.Root, "refs/sessions/*"))
+	refs, err := s.ListSessionRefs()
 	if err != nil {
 		return err
 	}
 
 	issues := []string{}
 
-	for _, refFile := range refFiles {
-		sessionID := filepath.Base(refFile)
-
-		// Read ref
-		refHash, err := s.ReadRef("sessions/" + sessionID)
-		if err != nil {
-			issues = append(issues, fmt.Sprintf("Session %s: cannot read ref: %v", sessionID, err))
+	for sessionID, refHash := range refs {
+		if refHash == "" {
+			issues = append(issues, fmt.Sprintf("Session %s: empty ref", sessionID))
 			continue
 		}
 

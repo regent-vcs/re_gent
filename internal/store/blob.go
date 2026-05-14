@@ -2,10 +2,12 @@ package store
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"lukechampine.com/blake3"
 )
@@ -57,6 +59,14 @@ func (s *Store) ReadBlob(h Hash) ([]byte, error) {
 
 // atomicWriteFile writes content to path atomically using temp file + rename
 func atomicWriteFile(path string, content []byte) error {
+	return atomicWriteFileWithReplace(path, content, false)
+}
+
+func atomicWriteFileReplacing(path string, content []byte) error {
+	return atomicWriteFileWithReplace(path, content, true)
+}
+
+func atomicWriteFileWithReplace(path string, content []byte, replaceExisting bool) error {
 	dir := filepath.Dir(path)
 	tmpFile, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {
@@ -87,7 +97,15 @@ func atomicWriteFile(path string, content []byte) error {
 
 	// Rename is atomic on POSIX filesystems
 	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("rename temp file: %w", err)
+		if !replaceExisting || !errors.Is(err, os.ErrExist) && !os.IsExist(err) && !strings.Contains(strings.ToLower(err.Error()), "access is denied") {
+			return fmt.Errorf("rename temp file: %w", err)
+		}
+		if removeErr := os.Remove(path); removeErr != nil && !os.IsNotExist(removeErr) {
+			return fmt.Errorf("replace existing file: %w", removeErr)
+		}
+		if err := os.Rename(tmpPath, path); err != nil {
+			return fmt.Errorf("rename temp file after replace: %w", err)
+		}
 	}
 
 	// Set permissions after rename

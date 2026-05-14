@@ -139,7 +139,7 @@ func TestHookCreatesStep(t *testing.T) {
 	}
 
 	// Verify session ref was updated
-	headHash, err := s.ReadRef("sessions/" + payload.SessionID)
+	headHash, err := s.ReadSessionRef(payload.SessionID)
 	if err != nil {
 		t.Fatalf("ReadRef failed: %v", err)
 	}

@@ -374,7 +374,7 @@ func TestRecorder_RecoversHeadStepMissingIndexAndLinks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("write step: %v", err)
 	}
-	if err := recorder.Store.UpdateRef("sessions/"+sessionID, "", stepHash); err != nil {
+	if err := recorder.Store.UpdateSessionRef(sessionID, "", stepHash); err != nil {
 		t.Fatalf("write ref: %v", err)
 	}
 
@@ -433,7 +433,7 @@ func TestRecorder_RetriesRefConflictAgainstLatestHead(t *testing.T) {
 		t.Fatalf("record tool: %v", err)
 	}
 
-	refPath := filepath.Join(root, ".regent", "refs", "sessions", sessionID)
+	refPath := filepath.Join(root, ".regent", "refs", filepath.FromSlash(store.SessionRefPath(sessionID)))
 	lockPath := refPath + ".lock"
 	if err := os.MkdirAll(filepath.Dir(refPath), 0o755); err != nil {
 		t.Fatalf("mkdir refs: %v", err)
@@ -493,7 +493,7 @@ func TestRecorder_RetriesRefConflictAgainstLatestHead(t *testing.T) {
 		t.Fatal("timed out waiting for finalize")
 	}
 
-	headHash, err := recorder.Store.ReadRef("sessions/" + sessionID)
+	headHash, err := recorder.Store.ReadSessionRef(sessionID)
 	if err != nil {
 		t.Fatalf("read head ref: %v", err)
 	}
@@ -582,7 +582,7 @@ func TestRecorder_AdoptsLegacyRawSessionID(t *testing.T) {
 	if err := recorder.Index.IndexStep(legacyStepHash, legacyStep, legacyTree); err != nil {
 		t.Fatalf("index legacy step: %v", err)
 	}
-	if err := recorder.Store.UpdateRef("sessions/"+legacySessionID, "", legacyStepHash); err != nil {
+	if err := recorder.Store.UpdateSessionRef(legacySessionID, "", legacyStepHash); err != nil {
 		t.Fatalf("write legacy ref: %v", err)
 	}
 
@@ -617,10 +617,10 @@ func TestRecorder_AdoptsLegacyRawSessionID(t *testing.T) {
 	if steps[0].ParentHash != legacyStepHash {
 		t.Fatalf("new step parent = %s, want legacy step %s", steps[0].ParentHash, legacyStepHash)
 	}
-	if _, err := recorder.Store.ReadRef("sessions/" + canonicalID); err != nil {
+	if _, err := recorder.Store.ReadSessionRef(canonicalID); err != nil {
 		t.Fatalf("canonical ref was not adopted: %v", err)
 	}
-	if _, err := recorder.Store.ReadRef("sessions/" + legacySessionID); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := recorder.Store.ReadSessionRef(legacySessionID); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("legacy raw ref should be removed after adoption, err=%v", err)
 	}
 }
@@ -665,7 +665,7 @@ func TestRecorder_DivergentLegacyRawSessionIDIsNotMerged(t *testing.T) {
 	if err := recorder.Index.IndexStep(legacyStepHash, legacyStep, legacyTree); err != nil {
 		t.Fatalf("index legacy step: %v", err)
 	}
-	if err := recorder.Store.UpdateRef("sessions/"+legacySessionID, "", legacyStepHash); err != nil {
+	if err := recorder.Store.UpdateSessionRef(legacySessionID, "", legacyStepHash); err != nil {
 		t.Fatalf("write legacy ref: %v", err)
 	}
 
@@ -692,7 +692,7 @@ func TestRecorder_DivergentLegacyRawSessionIDIsNotMerged(t *testing.T) {
 	if err := recorder.Index.IndexStep(canonicalStepHash, canonicalStep, canonicalTree); err != nil {
 		t.Fatalf("index canonical step: %v", err)
 	}
-	if err := recorder.Store.UpdateRef("sessions/"+canonicalID, "", canonicalStepHash); err != nil {
+	if err := recorder.Store.UpdateSessionRef(canonicalID, "", canonicalStepHash); err != nil {
 		t.Fatalf("write canonical ref: %v", err)
 	}
 
@@ -718,7 +718,7 @@ func TestRecorder_DivergentLegacyRawSessionIDIsNotMerged(t *testing.T) {
 	if _, err := recorder.Store.ReadRef("legacy-sessions/" + legacySessionID); err != nil {
 		t.Fatalf("legacy ref was not archived: %v", err)
 	}
-	if _, err := recorder.Store.ReadRef("sessions/" + legacySessionID); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := recorder.Store.ReadSessionRef(legacySessionID); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("legacy raw ref should be removed after archive, err=%v", err)
 	}
 }
@@ -810,7 +810,7 @@ func TestExistingStepForTurnWalksSessionAncestry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("write new step: %v", err)
 	}
-	if err := recorder.Store.UpdateRef("sessions/"+sessionID, "", newHash); err != nil {
+	if err := recorder.Store.UpdateSessionRef(sessionID, "", newHash); err != nil {
 		t.Fatalf("write session ref: %v", err)
 	}
 

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -305,6 +306,9 @@ func buildRGTBinary(t *testing.T, projectRoot string) string {
 	t.Helper()
 
 	rgtPath := filepath.Join(t.TempDir(), "rgt")
+	if runtime.GOOS == "windows" {
+		rgtPath += ".exe"
+	}
 	cmd := exec.Command("go", "build", "-o", rgtPath, "./cmd/rgt")
 	cmd.Dir = projectRoot
 	output, err := cmd.CombinedOutput()

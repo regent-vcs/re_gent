@@ -296,7 +296,7 @@ func (r *Recorder) adoptLegacySession(session SessionMetadata) error {
 		return r.adoptLegacySessionIndex(session)
 	}
 
-	legacyHead, err := r.Store.ReadRef("sessions/" + session.externalID)
+	legacyHead, err := r.Store.ReadSessionRef(session.externalID)
 	legacyRefExists := err == nil
 	mergeLegacyIndex := !legacyRefExists
 	if err != nil {
@@ -306,7 +306,7 @@ func (r *Recorder) adoptLegacySession(session SessionMetadata) error {
 	}
 
 	if legacyRefExists {
-		canonicalHead, err := r.Store.ReadRef("sessions/" + session.SessionID)
+		canonicalHead, err := r.Store.ReadSessionRef(session.SessionID)
 		switch {
 		case err == nil:
 			if canonicalHead == legacyHead {
@@ -327,7 +327,7 @@ func (r *Recorder) adoptLegacySession(session SessionMetadata) error {
 				}
 			}
 		case errors.Is(err, fs.ErrNotExist):
-			if err := r.Store.UpdateRef("sessions/"+session.SessionID, "", legacyHead); err != nil && !errors.Is(err, store.ErrRefConflict) {
+			if err := r.Store.UpdateSessionRef(session.SessionID, "", legacyHead); err != nil && !errors.Is(err, store.ErrRefConflict) {
 				return fmt.Errorf("write canonical session ref: %w", err)
 			}
 			mergeLegacyIndex = true
@@ -336,7 +336,7 @@ func (r *Recorder) adoptLegacySession(session SessionMetadata) error {
 			return fmt.Errorf("read canonical session ref: %w", err)
 		}
 
-		if err := r.Store.DeleteRef("sessions/"+session.externalID, legacyHead); err != nil && !errors.Is(err, store.ErrRefConflict) {
+		if err := r.Store.DeleteSessionRef(session.externalID, legacyHead); err != nil && !errors.Is(err, store.ErrRefConflict) {
 			return fmt.Errorf("delete legacy session ref: %w", err)
 		}
 	}
@@ -397,7 +397,7 @@ func (r *Recorder) archiveLegacySessionRef(externalID string, head store.Hash) e
 func (r *Recorder) createStepForTurn(session SessionMetadata, scope turnScope) (store.Hash, error) {
 	sessionID := session.SessionID
 	for attempt := 0; attempt < maxRefUpdateAttempts; attempt++ {
-		parentHash, err := r.Store.ReadRef("sessions/" + sessionID)
+		parentHash, err := r.Store.ReadSessionRef(sessionID)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return "", fmt.Errorf("read session ref: %w", err)
 		}
@@ -437,7 +437,7 @@ func (r *Recorder) createStepForTurn(session SessionMetadata, scope turnScope) (
 			logHookError(r.Store, fmt.Sprintf("blame step %s: %v", stepHash, err))
 		}
 
-		if err := r.Store.UpdateRef("sessions/"+sessionID, parentHash, stepHash); err != nil {
+		if err := r.Store.UpdateSessionRef(sessionID, parentHash, stepHash); err != nil {
 			if errors.Is(err, store.ErrRefConflict) {
 				time.Sleep(refUpdateBackoff(attempt))
 				continue
@@ -475,7 +475,7 @@ func (r *Recorder) existingStepForTurn(sessionID, turnID string) (store.Hash, bo
 		return stepHash, true, nil
 	}
 
-	headHash, err := r.Store.ReadRef("sessions/" + sessionID)
+	headHash, err := r.Store.ReadSessionRef(sessionID)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return "", false, nil
