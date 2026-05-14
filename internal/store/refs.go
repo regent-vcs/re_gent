@@ -69,6 +69,40 @@ func (s *Store) UpdateRef(name string, expectedOld Hash, newHash Hash) error {
 	return atomicWriteFile(refPath, []byte(newContent))
 }
 
+// DeleteRef deletes a ref using CAS (compare-and-swap) with lock files.
+func (s *Store) DeleteRef(name string, expectedOld Hash) error {
+	refPath := filepath.Join(s.Root, "refs", name)
+	lockPath := refPath + ".lock"
+
+	fd, err := syscall.Open(lockPath, syscall.O_CREAT|syscall.O_EXCL|syscall.O_WRONLY, 0o644)
+	if err != nil {
+		if errors.Is(err, syscall.EEXIST) {
+			return ErrRefConflict
+		}
+		return fmt.Errorf("acquire lock: %w", err)
+	}
+	defer func() {
+		_ = syscall.Close(fd)
+		_ = os.Remove(lockPath)
+	}()
+
+	current, err := s.ReadRef(name)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return ErrRefConflict
+		}
+		return err
+	}
+	if current != expectedOld {
+		return ErrRefConflict
+	}
+
+	if err := os.Remove(refPath); err != nil {
+		return fmt.Errorf("delete ref %s: %w", name, err)
+	}
+	return nil
+}
+
 // UpdateRefWithRetry updates a ref with exponential backoff retry on conflicts
 func (s *Store) UpdateRefWithRetry(name string, expectedOld, newHash Hash, maxAttempts int) error {
 	backoff := 5 * time.Millisecond
@@ -89,8 +123,11 @@ func (s *Store) UpdateRefWithRetry(name string, expectedOld, newHash Hash, maxAt
 			backoff = 100 * time.Millisecond
 		}
 
-		// Re-read current value for next attempt
-		expectedOld, _ = s.ReadRef(name) // Ignore error on retry
+		current, readErr := s.ReadRef(name)
+		if readErr != nil {
+			return fmt.Errorf("read ref %s after conflict: %w", name, readErr)
+		}
+		expectedOld = current
 	}
 	return ErrRefConflict
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/regent-vcs/regent/internal/conversation"
 	"github.com/regent-vcs/regent/internal/index"
+	"github.com/regent-vcs/regent/internal/store"
 	"github.com/regent-vcs/regent/internal/style"
 )
 
@@ -24,6 +25,7 @@ const (
 // EnrichedStep contains a step with all its related data
 type EnrichedStep struct {
 	StepInfo    index.StepInfo
+	Causes      []EnrichedCause
 	Files       []string
 	FileDiffs   []FileDiff // Actual file changes (parent → current)
 	Args        json.RawMessage
@@ -31,6 +33,13 @@ type EnrichedStep struct {
 	Duration    time.Duration
 	Messages    []json.RawMessage // Conversation transcript
 	GraphPrefix string            // ASCII graph line prefix (if graph enabled)
+	Warnings    []string          // Non-fatal data recovery or display issues
+}
+
+type EnrichedCause struct {
+	Cause  store.Cause
+	Args   json.RawMessage
+	Result json.RawMessage
 }
 
 // FileDiff represents a file change between steps
@@ -93,8 +102,9 @@ func (f *DefaultFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 			formatted := conversation.FormatConversationWithHash(conv, graphPrefix, style.Hash(string(step.StepInfo.Hash[:8])), timestamp)
 			if formatted != "" {
 				fmt.Fprint(w, formatted)
-				fmt.Fprintln(w) // Blank line after conversation
 			}
+			printWarnings(w, step.Warnings)
+			fmt.Fprintln(w) // Blank line after conversation
 			continue
 		}
 
@@ -107,7 +117,7 @@ func (f *DefaultFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 
 		// Show step hash and timestamp
 		fmt.Fprintf(w, "%s %s  %s",
-			style.Label(step.StepInfo.ToolName),
+			style.Label(stepToolLabel(step)),
 			style.Hash(string(step.StepInfo.Hash[:8])),
 			style.Timestamp(step.StepInfo.Timestamp.Format("15:04:05")))
 
@@ -115,6 +125,7 @@ func (f *DefaultFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 			fmt.Fprintf(w, "  %s", style.DimText(fmt.Sprintf("(%s)", formatDuration(step.Duration))))
 		}
 		fmt.Fprintln(w)
+		printWarnings(w, step.Warnings)
 
 		// Show what the tool did (command, file, etc.) - only if NOT in conversation mode
 		if !showConversation {
@@ -176,7 +187,7 @@ func (f *OnelineFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 		// Build line
 		line := fmt.Sprintf("%s %s %s",
 			string(step.StepInfo.Hash[:8]),
-			step.StepInfo.ToolName,
+			stepToolLabel(step),
 			summary)
 
 		// Append file stats if requested
@@ -201,14 +212,25 @@ type jsonStep struct {
 	Hash      string            `json:"hash"`
 	Parent    string            `json:"parent,omitempty"`
 	Timestamp string            `json:"timestamp"`
+	Origin    string            `json:"origin,omitempty"`
+	TurnID    string            `json:"turn_id,omitempty"`
 	Tool      string            `json:"tool"`
 	ToolUseID string            `json:"tool_use_id"`
+	Causes    []jsonCause       `json:"causes,omitempty"`
 	Files     []string          `json:"files,omitempty"`
 	FileDiffs []FileDiff        `json:"file_diffs,omitempty"`
 	Args      json.RawMessage   `json:"args,omitempty"`
 	Result    json.RawMessage   `json:"result,omitempty"`
 	Duration  float64           `json:"duration_seconds,omitempty"`
 	Messages  []json.RawMessage `json:"messages,omitempty"`
+	Warnings  []string          `json:"warnings,omitempty"`
+}
+
+type jsonCause struct {
+	Tool      string          `json:"tool"`
+	ToolUseID string          `json:"tool_use_id"`
+	Args      json.RawMessage `json:"args,omitempty"`
+	Result    json.RawMessage `json:"result,omitempty"`
 }
 
 func (f *JSONFormatter) Format(steps []EnrichedStep, sessionID string, showConversation bool, showFiles bool, w io.Writer) error {
@@ -225,6 +247,8 @@ func (f *JSONFormatter) Format(steps []EnrichedStep, sessionID string, showConve
 			Hash:      string(step.StepInfo.Hash),
 			Parent:    string(step.StepInfo.ParentHash),
 			Timestamp: step.StepInfo.Timestamp.Format(time.RFC3339),
+			Origin:    step.StepInfo.Origin,
+			TurnID:    step.StepInfo.TurnID,
 			Tool:      step.StepInfo.ToolName,
 			ToolUseID: step.StepInfo.ToolUseID,
 			Files:     step.Files,
@@ -239,6 +263,20 @@ func (f *JSONFormatter) Format(steps []EnrichedStep, sessionID string, showConve
 
 		if showConversation {
 			js.Messages = step.Messages
+		}
+		if len(step.Warnings) > 0 {
+			js.Warnings = step.Warnings
+		}
+		if len(step.Causes) > 0 {
+			js.Causes = make([]jsonCause, 0, len(step.Causes))
+			for _, cause := range step.Causes {
+				js.Causes = append(js.Causes, jsonCause{
+					Tool:      cause.Cause.ToolName,
+					ToolUseID: cause.Cause.ToolUseID,
+					Args:      cause.Args,
+					Result:    cause.Result,
+				})
+			}
 		}
 
 		output.Steps[i] = js
@@ -261,7 +299,7 @@ func (f *StatFormatter) Format(steps []EnrichedStep, sessionID string, showConve
 	for _, step := range steps {
 		fmt.Fprintf(w, "%s  %s  %s\n",
 			style.Hash(string(step.StepInfo.Hash[:8])),
-			step.StepInfo.ToolName,
+			stepToolLabel(step),
 			style.Timestamp(step.StepInfo.Timestamp.Format("15:04:05")))
 
 		// Show file diffs with stats if --files flag
@@ -292,6 +330,7 @@ func (f *StatFormatter) Format(steps []EnrichedStep, sessionID string, showConve
 			formatted := FormatMessagesHumanReadable(step.Messages, " ")
 			fmt.Fprint(w, formatted)
 		}
+		printWarnings(w, step.Warnings)
 
 		fmt.Fprintln(w)
 	}
@@ -309,6 +348,12 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
 	}
 	return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+}
+
+func printWarnings(w io.Writer, warnings []string) {
+	for _, warning := range warnings {
+		fmt.Fprintf(w, "  %s\n", style.Warning(warning))
+	}
 }
 
 func formatFileStat(fd FileDiff) string {
@@ -348,4 +393,11 @@ func getSummary(step EnrichedStep) string {
 	}
 
 	return ""
+}
+
+func stepToolLabel(step EnrichedStep) string {
+	if len(step.Causes) <= 1 {
+		return step.StepInfo.ToolName
+	}
+	return fmt.Sprintf("%s +%d", step.StepInfo.ToolName, len(step.Causes)-1)
 }

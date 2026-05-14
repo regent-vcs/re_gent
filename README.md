@@ -21,6 +21,7 @@
 [![Contributions Welcome](https://img.shields.io/badge/Contributions-Welcome-10b981?style=for-the-badge&logo=github)](CONTRIBUTING.md)
 [![Claude Code Compatible](https://img.shields.io/badge/Claude%20Code-Compatible-6366f1?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/regent-vcs/regent)
 [![Discord](https://img.shields.io/discord/1503732569622053004?style=for-the-badge&logo=discord&logoColor=white&color=5865F2)](https://discord.gg/Unf24KMh)
+[![Codex Compatible](https://img.shields.io/badge/Codex-Compatible-10b981?style=for-the-badge&logo=openai&logoColor=white)](https://github.com/regent-vcs/regent)
 
 </div>
 
@@ -49,7 +50,7 @@ go install github.com/regent-vcs/regent/cmd/rgt@latest
 cd your-project
 rgt init
 
-# Work with Claude Code normally (every tool call is tracked)
+# Work with Claude Code or Codex normally (agent activity is tracked)
 
 # See what happened
 rgt log
@@ -169,19 +170,14 @@ re_gent stores agent activity in `.regent/` (like `.git/`):
 └── config.toml
 ```
 
-Every tool call creates a **Step**:
+Every tool-using turn creates a **Step**; each tool call in that turn is recorded as a cause/message:
 
 ```go
 Step {
   parent:      <previous-step-hash>
   tree:        <workspace-snapshot>
-  transcript:  <conversation-delta>
-  cause: {
-    tool_name: "Edit"
-    args:      <what-changed>
-    result:    <tool-output>
-  }
-  session_id:  "claude-20260502-143021"
+  causes:      [{ tool_name: "Edit", args: <input>, result: <output> }]
+  session_id:  "claude_code:claude-20260502-143021"
   timestamp:   "2026-05-02T14:30:21Z"
 }
 ```
@@ -285,7 +281,7 @@ npm install && npm run compile
 | Command | Description |
 |---------|-------------|
 | `rgt init` | Initialize `.regent/` in current directory |
-| `rgt log` | Show step history (supports `--session`, `-n`, `--since`) |
+| `rgt log` | Show step history (supports `--session`, `-n`, `--json`, `--graph`) |
 | `rgt sessions` | List all active sessions |
 | `rgt status` | Show current repository state |
 | `rgt show <step>` | Display full context for a step (tool call + conversation) |
@@ -308,9 +304,9 @@ npm install && npm run compile
 
 - **Content-Addressed Storage** — BLAKE3 hashing, automatic deduplication
 - **Fast Queries** — SQLite index, sub-10ms lookups
-- **Per-Session DAG** — Concurrent agents, no conflicts
+- **Per-Session DAG** — Concurrent sessions tracked as separate refs
 - **Conversation Tracking** — Survives `/compact` and `/clear`
-- **Hook-Driven** — Transparent Claude Code integration
+- **Hook-Driven** — Transparent Claude Code and Codex integration
 - **Concurrency-Safe** — CAS refs, ACID transactions
 - **Gitignore-Compatible** — `.regentignore` support
 
@@ -324,7 +320,7 @@ npm install && npm run compile
 | **Tracks agent activity** | ❌ | ✅ |
 | **Blame with prompt** | ❌ | ✅ |
 | **Conversation history** | ❌ | ✅ |
-| **Concurrent sessions** | ⚠️ conflicts | ✅ separate branches |
+| **Concurrent sessions** | ⚠️ shared workspace conflicts | ✅ separate captured session refs |
 | **Purpose** | Developer VCS | Agent audit trail |
 
 **re_gent complements git, doesn't replace it.** Use both.
@@ -337,7 +333,7 @@ npm install && npm run compile
 
 - ~7.8k LOC Go implementation
 - Core functionality: init, log, sessions, status, show, blame — **COMPLETE**
-- Hook integration (Claude Code) — **COMPLETE**
+- Hook integration (Claude Code and Codex) — **COMPLETE**
 - Used daily by contributors
 - Not yet v1.0
 
@@ -363,7 +359,7 @@ We're working on:
 | Phase | Status | Features |
 |-------|--------|----------|
 | **Phase 1: Core Storage** | ✅ Complete | Object store, content addressing, SQLite index |
-| **Phase 2: Hook Integration** | ✅ Complete | Claude Code capture, session tracking |
+| **Phase 2: Hook Integration** | ✅ Complete | Claude Code and Codex capture, session tracking |
 | **Phase 3: Advanced Features** | 🚧 In Progress | fork, rewind, performance optimization |
 | **Phase 4: Multi-Tool Support** | 📋 Planned | Cursor, Cline, Continue adapters |
 | **Phase 5: Collaboration** | 📋 Planned | Session sharing, merge support |

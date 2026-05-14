@@ -14,7 +14,7 @@ A production-ready version control system for AI agents that:
 - ✅ **Provides git-level auditability** through `log`, `blame`, and `show` commands
 - 🚧 **Enables time-travel** via non-destructive `rewind` and `fork` operations
 - 🚧 **Scales to real-world codebases** (10k+ files, hundreds of sessions)
-- 📋 **Works with multiple AI tools** (Claude Code, Cursor, Cline, Continue)
+- 🚧 **Works with multiple AI tools** (Claude Code and Codex complete; Cursor, Cline, Continue planned)
 - 📋 **Supports collaboration** (session sharing, merge strategies)
 
 **Target Date**: Q3 2026
@@ -27,7 +27,7 @@ A production-ready version control system for AI agents that:
 - ✅ Content-addressed object store (BLAKE3, dedupe, atomic writes)
 - ✅ SQLite query index with sub-10ms lookups
 - ✅ Per-session DAG with concurrent session support
-- ✅ Hook integration (Claude Code PostToolUse)
+- ✅ Hook integration (Claude Code and Codex per-turn capture)
 - ✅ Conversation tracking (survives `/compact` and `/clear`)
 - ✅ Core commands: `init`, `log`, `sessions`, `status`, `show`, `blame`
 - ✅ `.regentignore` support (gitignore-compatible)
@@ -40,7 +40,7 @@ A production-ready version control system for AI agents that:
 - 🚧 Performance optimization for large repos
 
 **📋 Not Started:**
-- 📋 Multi-tool adapters (Cursor, Cline, Continue)
+- 📋 Additional adapters (Cursor, Cline, Continue)
 - 📋 Session sharing / remote sync
 - 📋 Garbage collection
 - 📋 Merge strategies for concurrent edits
@@ -67,13 +67,14 @@ A production-ready version control system for AI agents that:
 
 ### ✅ Phase 2: Hook Integration (Complete)
 
-**Goal**: Capture Claude Code activity transparently with zero user intervention.
+**Goal**: Capture Claude Code and Codex activity transparently with zero manual commits.
 
 **Deliverables:**
-- [x] `PostToolUse` hook implementation
-- [x] Conversation staging from JSONL
+- [x] Claude Code `UserPromptSubmit`, `PostToolBatch`, and `Stop` hook implementation
+- [x] Codex `SessionStart`, `UserPromptSubmit`, `PostToolUse`, and `Stop` hook implementation
+- [x] Conversation staging and transcript archival
 - [x] Session tracking and management
-- [x] `rgt log` with filtering (`--session`, `-n`, `--since`)
+- [x] `rgt log` with filtering (`--session`, `-n`, `--json`, `--graph`)
 - [x] `rgt blame` with per-line provenance
 - [x] `rgt show` for full step context
 
@@ -114,12 +115,12 @@ A production-ready version control system for AI agents that:
 
 ---
 
-### 📋 Phase 4: Multi-Tool Support (Planned — Q2 2026)
+### 📋 Phase 4: Additional Tool Support (Planned)
 
-**Goal**: Work with Cursor, Cline, Continue, and Claude Agent SDK.
+**Goal**: Extend the shared capture adapter model beyond Claude Code and Codex.
 
 **Deliverables:**
-- [ ] Adapter architecture (common `Payload` interface)
+- [ ] Adapter architecture using the shared capture event model
 - [ ] Cursor adapter ([#20](https://github.com/regent-vcs/regent/issues/20))
   - Hook integration for Cursor's `.cursorrules`
   - Conversation extraction from Cursor's state
@@ -132,7 +133,7 @@ A production-ready version control system for AI agents that:
   - Python decorator: `@regent.track`
   - Automatic step creation on tool use
 - [ ] Tool detection (auto-detect which tool is running)
-- [ ] Origin tracking (`origin` field in session metadata)
+- [ ] Origin registry/mapping for additional adapters
 
 **Success Criteria:**
 - All four adapters capture activity to the same `.regent/`
@@ -231,7 +232,7 @@ A v1.0.0-beta release means:
 - ✅ Time-travel: `rewind`, `fork`
 - ✅ Collaboration: `push`, `pull`, `merge`
 - ✅ Maintenance: `gc`, `fsck`, `reindex`
-- ✅ Multi-tool: Claude Code + Cursor + Cline + Continue
+- ✅ Multi-tool: Claude Code + Codex + Cursor + Cline + Continue
 
 **Production Ready:**
 - ✅ No known data-loss bugs
@@ -307,7 +308,7 @@ See [README.md](README.md#regent-vs-git) for full comparison.
 
 ### When will multi-tool support land?
 
-Phase 4 (Q2 2026). Claude Code is the reference implementation; other tools follow once the adapter architecture is proven.
+Claude Code and Codex CLI are supported by the shared capture engine. Additional agent adapters can follow the same `origin`, canonical `session_id`, and `turn_id` event contract.
 
 ### Will v1.0 be backward-compatible?
 

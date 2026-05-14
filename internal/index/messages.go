@@ -2,6 +2,9 @@ package index
 
 import (
 	"database/sql"
+	"fmt"
+	"strings"
+	"time"
 
 	"github.com/regent-vcs/regent/internal/store"
 )
@@ -11,8 +14,10 @@ type Message struct {
 	ID          string
 	SessionID   string
 	StepID      string // NULL for orphan messages
+	TurnID      string
 	SeqNum      int
 	Timestamp   int64
+	ProcessedAt int64
 	MessageType string // 'user', 'assistant', 'tool_call', 'tool_result'
 	ContentText string
 	ToolName    string
@@ -30,10 +35,11 @@ func (idx *DB) InsertMessage(msg Message) error {
 	defer func() { _ = tx.Rollback() }()
 
 	_, err = tx.Exec(`
-		INSERT INTO messages (id, session_id, step_id, seq_num, timestamp, message_type,
+		INSERT INTO messages (id, session_id, step_id, turn_id, seq_num, timestamp, processed_at, message_type,
 		                      content_text, tool_name, tool_use_id, tool_input, tool_output)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, msg.ID, msg.SessionID, nullString(msg.StepID), msg.SeqNum, msg.Timestamp, msg.MessageType,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, msg.ID, msg.SessionID, nullString(msg.StepID), nullString(msg.TurnID), msg.SeqNum, msg.Timestamp,
+		nullInt64(msg.ProcessedAt), msg.MessageType,
 		nullString(msg.ContentText), nullString(msg.ToolName), nullString(msg.ToolUseID),
 		nullString(msg.ToolInput), nullString(msg.ToolOutput))
 
@@ -42,6 +48,198 @@ func (idx *DB) InsertMessage(msg Message) error {
 	}
 
 	return tx.Commit()
+}
+
+// AppendMessage assigns the next session sequence number and stores a message.
+func (idx *DB) AppendMessage(msg Message) error {
+	if msg.SessionID == "" {
+		return fmt.Errorf("session id is required")
+	}
+
+	_, err := idx.db.Exec(`
+		INSERT INTO messages (id, session_id, step_id, turn_id, seq_num, timestamp, processed_at, message_type,
+		                      content_text, tool_name, tool_use_id, tool_input, tool_output)
+		SELECT ?, ?, ?, ?, COALESCE(MAX(seq_num), -1) + 1, ?, ?, ?, ?, ?, ?, ?, ?
+		FROM messages
+		WHERE session_id = ?
+	`, msg.ID, msg.SessionID, nullString(msg.StepID), nullString(msg.TurnID), msg.Timestamp,
+		nullInt64(msg.ProcessedAt), msg.MessageType,
+		nullString(msg.ContentText), nullString(msg.ToolName), nullString(msg.ToolUseID),
+		nullString(msg.ToolInput), nullString(msg.ToolOutput), msg.SessionID)
+	return err
+}
+
+// AppendToolUseMessages atomically stores a tool call/result pair once.
+func (idx *DB) AppendToolUseMessages(call, result Message) (bool, error) {
+	if call.SessionID == "" {
+		return false, fmt.Errorf("session id is required")
+	}
+	if call.ToolUseID == "" {
+		return false, fmt.Errorf("tool use id is required")
+	}
+	if call.MessageType != "tool_call" {
+		return false, fmt.Errorf("call message type must be tool_call")
+	}
+	if result.MessageType != "tool_result" {
+		return false, fmt.Errorf("result message type must be tool_result")
+	}
+	if result.SessionID != call.SessionID {
+		return false, fmt.Errorf("tool result session does not match call session")
+	}
+	if result.TurnID != call.TurnID {
+		return false, fmt.Errorf("tool result turn does not match call turn")
+	}
+	if result.ToolUseID != call.ToolUseID {
+		return false, fmt.Errorf("tool result id does not match call id")
+	}
+
+	for attempt := 0; attempt < 8; attempt++ {
+		ok, err := idx.appendToolUseMessagesOnce(call, result)
+		if err == nil || !isSQLiteBusy(err) {
+			return ok, err
+		}
+		time.Sleep(sqliteBusyBackoff(attempt))
+	}
+	return false, fmt.Errorf("append tool use messages: database remained busy")
+}
+
+func (idx *DB) appendToolUseMessagesOnce(call, result Message) (bool, error) {
+	tx, err := idx.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	guard, err := tx.Exec(`
+		INSERT INTO tool_uses (session_id, turn_id, tool_use_id)
+		VALUES (?, ?, ?)
+		ON CONFLICT DO NOTHING
+	`, call.SessionID, call.TurnID, call.ToolUseID)
+	if err != nil {
+		return false, fmt.Errorf("insert tool use guard: %w", err)
+	}
+	if !rowsChanged(guard) {
+		if err := validateExistingToolUseMessages(tx, call, result); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+
+	seq, err := nextMessageSeq(tx, call.SessionID)
+	if err != nil {
+		return false, fmt.Errorf("next message sequence: %w", err)
+	}
+	call.SeqNum = seq
+	result.SeqNum = seq + 1
+
+	if err := insertMessage(tx, call); err != nil {
+		return false, fmt.Errorf("insert tool call: %w", err)
+	}
+	if err := insertMessage(tx, result); err != nil {
+		return false, fmt.Errorf("insert tool result: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func validateExistingToolUseMessages(tx *sql.Tx, call, result Message) error {
+	rows, err := tx.Query(`
+		SELECT message_type, COALESCE(tool_name, ''), COALESCE(tool_input, ''), COALESCE(tool_output, '')
+		FROM messages
+		WHERE session_id = ?
+		  AND turn_id = ?
+		  AND tool_use_id = ?
+		  AND message_type IN ('tool_call', 'tool_result')
+		ORDER BY seq_num ASC
+	`, call.SessionID, call.TurnID, call.ToolUseID)
+	if err != nil {
+		return fmt.Errorf("read existing tool use messages: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var foundCall, foundResult bool
+	for rows.Next() {
+		var messageType, toolName, toolInput, toolOutput string
+		if err := rows.Scan(&messageType, &toolName, &toolInput, &toolOutput); err != nil {
+			return fmt.Errorf("scan existing tool use message: %w", err)
+		}
+
+		switch messageType {
+		case "tool_call":
+			if foundCall {
+				return duplicateToolUseError(call, "multiple existing tool_call messages")
+			}
+			foundCall = true
+			if toolName != call.ToolName || toolInput != call.ToolInput {
+				return duplicateToolUseError(call, "existing tool_call payload differs")
+			}
+		case "tool_result":
+			if foundResult {
+				return duplicateToolUseError(call, "multiple existing tool_result messages")
+			}
+			foundResult = true
+			if toolName != result.ToolName || toolOutput != result.ToolOutput {
+				return duplicateToolUseError(call, "existing tool_result payload differs")
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read existing tool use messages: %w", err)
+	}
+	if !foundCall || !foundResult {
+		return duplicateToolUseError(call, "existing tool use is incomplete")
+	}
+	return nil
+}
+
+func duplicateToolUseError(msg Message, reason string) error {
+	return fmt.Errorf("duplicate tool use %q for session %q turn %q conflicts: %s", msg.ToolUseID, msg.SessionID, msg.TurnID, reason)
+}
+
+func isSQLiteBusy(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "SQLITE_BUSY") || strings.Contains(msg, "database is locked")
+}
+
+func sqliteBusyBackoff(attempt int) time.Duration {
+	backoff := 5 * time.Millisecond
+	for i := 0; i < attempt; i++ {
+		backoff *= 2
+		if backoff >= 100*time.Millisecond {
+			return 100 * time.Millisecond
+		}
+	}
+	return backoff
+}
+
+func nextMessageSeq(tx *sql.Tx, sessionID string) (int, error) {
+	var maxSeq sql.NullInt64
+	err := tx.QueryRow(`SELECT MAX(seq_num) FROM messages WHERE session_id = ?`, sessionID).Scan(&maxSeq)
+	if err != nil {
+		return 0, err
+	}
+	if !maxSeq.Valid {
+		return 0, nil
+	}
+	return int(maxSeq.Int64) + 1, nil
+}
+
+func insertMessage(tx *sql.Tx, msg Message) error {
+	_, err := tx.Exec(`
+		INSERT INTO messages (id, session_id, step_id, turn_id, seq_num, timestamp, processed_at, message_type,
+		                      content_text, tool_name, tool_use_id, tool_input, tool_output)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, msg.ID, msg.SessionID, nullString(msg.StepID), nullString(msg.TurnID), msg.SeqNum, msg.Timestamp,
+		nullInt64(msg.ProcessedAt), msg.MessageType,
+		nullString(msg.ContentText), nullString(msg.ToolName), nullString(msg.ToolUseID),
+		nullString(msg.ToolInput), nullString(msg.ToolOutput))
+	return err
 }
 
 // GetNextMessageSeq returns the next sequence number for a session
@@ -65,7 +263,7 @@ func (idx *DB) GetNextMessageSeq(sessionID string) (int, error) {
 // GetMessagesForStep returns all messages linked to a step
 func (idx *DB) GetMessagesForStep(stepID store.Hash) ([]Message, error) {
 	rows, err := idx.db.Query(`
-		SELECT id, session_id, step_id, seq_num, timestamp, message_type,
+		SELECT id, session_id, step_id, turn_id, seq_num, timestamp, processed_at, message_type,
 		       content_text, tool_name, tool_use_id, tool_input, tool_output
 		FROM messages
 		WHERE step_id = ?
@@ -79,9 +277,11 @@ func (idx *DB) GetMessagesForStep(stepID store.Hash) ([]Message, error) {
 	var messages []Message
 	for rows.Next() {
 		var msg Message
-		var stepID, contentText, toolName, toolUseID, toolInput, toolOutput sql.NullString
+		var stepID, turnID, contentText, toolName, toolUseID, toolInput, toolOutput sql.NullString
+		var processedAt sql.NullInt64
 
-		err := rows.Scan(&msg.ID, &msg.SessionID, &stepID, &msg.SeqNum, &msg.Timestamp,
+		err := rows.Scan(&msg.ID, &msg.SessionID, &stepID, &turnID, &msg.SeqNum, &msg.Timestamp,
+			&processedAt,
 			&msg.MessageType, &contentText, &toolName, &toolUseID, &toolInput, &toolOutput)
 		if err != nil {
 			return nil, err
@@ -89,6 +289,12 @@ func (idx *DB) GetMessagesForStep(stepID store.Hash) ([]Message, error) {
 
 		if stepID.Valid {
 			msg.StepID = stepID.String
+		}
+		if turnID.Valid {
+			msg.TurnID = turnID.String
+		}
+		if processedAt.Valid {
+			msg.ProcessedAt = processedAt.Int64
 		}
 		if contentText.Valid {
 			msg.ContentText = contentText.String
@@ -112,15 +318,75 @@ func (idx *DB) GetMessagesForStep(stepID store.Hash) ([]Message, error) {
 	return messages, rows.Err()
 }
 
+// ToolUseExists reports whether a tool call was already recorded.
+func (idx *DB) ToolUseExists(sessionID, turnID, toolUseID string, allTurns bool) (bool, error) {
+	if sessionID == "" {
+		return false, fmt.Errorf("session id is required")
+	}
+	if toolUseID == "" {
+		return false, fmt.Errorf("tool use id is required")
+	}
+	if !allTurns && turnID == "" {
+		return false, fmt.Errorf("turn id is required")
+	}
+
+	query := `
+		SELECT COUNT(*)
+		FROM messages
+		WHERE session_id = ?
+		  AND message_type = 'tool_call'
+		  AND tool_use_id = ?
+	`
+	args := []interface{}{sessionID, toolUseID}
+	if !allTurns {
+		query += ` AND turn_id = ?`
+		args = append(args, turnID)
+	}
+
+	var count int
+	if err := idx.db.QueryRow(query, args...).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // GetOrphanMessages returns all messages in a session that aren't linked to a step yet
 func (idx *DB) GetOrphanMessages(sessionID string) ([]Message, error) {
+	return idx.GetAllPendingMessages(sessionID)
+}
+
+// GetAllPendingMessages returns unprocessed messages for a session across turns.
+func (idx *DB) GetAllPendingMessages(sessionID string) ([]Message, error) {
+	return idx.getPendingMessages(sessionID, "", true)
+}
+
+// GetPendingMessages returns unprocessed messages for one explicit turn.
+func (idx *DB) GetPendingMessages(sessionID, turnID string) ([]Message, error) {
+	return idx.getPendingMessages(sessionID, turnID, false)
+}
+
+func (idx *DB) getPendingMessages(sessionID, turnID string, allTurns bool) ([]Message, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("session id is required")
+	}
+	if !allTurns && turnID == "" {
+		return nil, fmt.Errorf("turn id is required")
+	}
+
+	where := `WHERE session_id = ? AND step_id IS NULL AND processed_at IS NULL`
+	args := []interface{}{sessionID}
+	if !allTurns {
+		where += ` AND turn_id = ?`
+		args = append(args, turnID)
+	}
+
 	rows, err := idx.db.Query(`
-		SELECT id, session_id, step_id, seq_num, timestamp, message_type,
+		SELECT id, session_id, step_id, turn_id, seq_num, timestamp, processed_at, message_type,
 		       content_text, tool_name, tool_use_id, tool_input, tool_output
 		FROM messages
-		WHERE session_id = ? AND step_id IS NULL
+		`+where+`
 		ORDER BY seq_num ASC
-	`, sessionID)
+	`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -129,9 +395,11 @@ func (idx *DB) GetOrphanMessages(sessionID string) ([]Message, error) {
 	var messages []Message
 	for rows.Next() {
 		var msg Message
-		var stepID, contentText, toolName, toolUseID, toolInput, toolOutput sql.NullString
+		var stepID, turnID, contentText, toolName, toolUseID, toolInput, toolOutput sql.NullString
+		var processedAt sql.NullInt64
 
-		err := rows.Scan(&msg.ID, &msg.SessionID, &stepID, &msg.SeqNum, &msg.Timestamp,
+		err := rows.Scan(&msg.ID, &msg.SessionID, &stepID, &turnID, &msg.SeqNum, &msg.Timestamp,
+			&processedAt,
 			&msg.MessageType, &contentText, &toolName, &toolUseID, &toolInput, &toolOutput)
 		if err != nil {
 			return nil, err
@@ -139,6 +407,12 @@ func (idx *DB) GetOrphanMessages(sessionID string) ([]Message, error) {
 
 		if stepID.Valid {
 			msg.StepID = stepID.String
+		}
+		if turnID.Valid {
+			msg.TurnID = turnID.String
+		}
+		if processedAt.Valid {
+			msg.ProcessedAt = processedAt.Int64
 		}
 		if contentText.Valid {
 			msg.ContentText = contentText.String
@@ -164,13 +438,87 @@ func (idx *DB) GetOrphanMessages(sessionID string) ([]Message, error) {
 
 // LinkMessagesToStep updates orphan messages (step_id IS NULL) to link them to a step
 func (idx *DB) LinkMessagesToStep(sessionID string, stepID store.Hash) error {
-	_, err := idx.db.Exec(`
-		UPDATE messages
-		SET step_id = ?
-		WHERE session_id = ? AND step_id IS NULL
-	`, stepID, sessionID)
-
+	_, err := idx.LinkAllPendingMessagesToStep(sessionID, stepID, 0)
 	return err
+}
+
+// LinkAllPendingMessagesToStep links all pending messages to a step and marks them processed.
+func (idx *DB) LinkAllPendingMessagesToStep(sessionID string, stepID store.Hash, processedAt int64) (int64, error) {
+	return idx.linkPendingMessagesToStep(sessionID, "", stepID, processedAt, true)
+}
+
+// LinkPendingMessagesToStep links pending messages for one turn to a step and marks them processed.
+func (idx *DB) LinkPendingMessagesToStep(sessionID, turnID string, stepID store.Hash, processedAt int64) (int64, error) {
+	return idx.linkPendingMessagesToStep(sessionID, turnID, stepID, processedAt, false)
+}
+
+func (idx *DB) linkPendingMessagesToStep(sessionID, turnID string, stepID store.Hash, processedAt int64, allTurns bool) (int64, error) {
+	if sessionID == "" {
+		return 0, fmt.Errorf("session id is required")
+	}
+	if stepID == "" {
+		return 0, fmt.Errorf("step id is required")
+	}
+	if !allTurns && turnID == "" {
+		return 0, fmt.Errorf("turn id is required")
+	}
+	if processedAt == 0 {
+		processedAt = timeNow()
+	}
+	query := `
+		UPDATE messages
+		SET step_id = ?, processed_at = ?
+		WHERE session_id = ? AND step_id IS NULL AND processed_at IS NULL
+	`
+	args := []interface{}{stepID, processedAt, sessionID}
+	if !allTurns {
+		query += ` AND turn_id = ?`
+		args = append(args, turnID)
+	}
+	result, err := idx.db.Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// MarkAllPendingMessagesProcessed marks all pending messages as consumed without creating a step.
+func (idx *DB) MarkAllPendingMessagesProcessed(sessionID string, processedAt int64) (int64, error) {
+	return idx.markPendingMessagesProcessed(sessionID, "", processedAt, true)
+}
+
+// MarkPendingMessagesProcessed marks a no-tool turn as consumed without creating a step.
+func (idx *DB) MarkPendingMessagesProcessed(sessionID, turnID string, processedAt int64) (int64, error) {
+	return idx.markPendingMessagesProcessed(sessionID, turnID, processedAt, false)
+}
+
+func (idx *DB) markPendingMessagesProcessed(sessionID, turnID string, processedAt int64, allTurns bool) (int64, error) {
+	if sessionID == "" {
+		return 0, fmt.Errorf("session id is required")
+	}
+	if !allTurns && turnID == "" {
+		return 0, fmt.Errorf("turn id is required")
+	}
+	if processedAt == 0 {
+		processedAt = timeNow()
+	}
+	query := `
+		UPDATE messages
+		SET processed_at = ?
+		WHERE session_id = ? AND step_id IS NULL AND processed_at IS NULL
+	`
+	args := []interface{}{processedAt, sessionID}
+	if !allTurns {
+		query += ` AND turn_id = ?`
+		args = append(args, turnID)
+	}
+
+	result, err := idx.db.Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 // InsertJSONLSnapshot stores a JSONL archive snapshot
@@ -188,4 +536,15 @@ func nullString(s string) sql.NullString {
 		return sql.NullString{Valid: false}
 	}
 	return sql.NullString{String: s, Valid: true}
+}
+
+func nullInt64(n int64) sql.NullInt64 {
+	if n == 0 {
+		return sql.NullInt64{Valid: false}
+	}
+	return sql.NullInt64{Int64: n, Valid: true}
+}
+
+func timeNow() int64 {
+	return time.Now().UnixNano()
 }

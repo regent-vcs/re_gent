@@ -288,3 +288,28 @@ func TestUpdateRef_CreatesDirectory(t *testing.T) {
 		t.Errorf("Hash mismatch: got %s, want %s", readHash, hash)
 	}
 }
+
+func TestDeleteRefRequiresExpectedHead(t *testing.T) {
+	root := t.TempDir()
+	s, err := Init(root)
+	if err != nil {
+		t.Fatalf("init store: %v", err)
+	}
+
+	if err := s.UpdateRef("sessions/test", "", "head-1"); err != nil {
+		t.Fatalf("write ref: %v", err)
+	}
+	if err := s.DeleteRef("sessions/test", "wrong-head"); !errors.Is(err, ErrRefConflict) {
+		t.Fatalf("DeleteRef wrong head error = %v, want ErrRefConflict", err)
+	}
+	if head, err := s.ReadRef("sessions/test"); err != nil || head != "head-1" {
+		t.Fatalf("ref changed after failed delete: head=%s err=%v", head, err)
+	}
+
+	if err := s.DeleteRef("sessions/test", "head-1"); err != nil {
+		t.Fatalf("delete ref: %v", err)
+	}
+	if _, err := s.ReadRef("sessions/test"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("read deleted ref error = %v, want fs.ErrNotExist", err)
+	}
+}

@@ -2,7 +2,9 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,49 +30,85 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 
 	// Render graph if requested
 	var graphPrefixes []string
+	var graphWarning string
 	if renderGraph {
 		var err error
 		graphPrefixes, err = RenderGraph(steps, s)
 		if err != nil {
-			// Don't fail entirely if graph rendering fails
-			// Just log and continue without graph
+			graphWarning = fmt.Sprintf("render graph: %v", err)
 			graphPrefixes = nil
 		}
 	}
 
 	for i, stepInfo := range steps {
+		var warnings []string
+		if i == 0 && graphWarning != "" {
+			warnings = append(warnings, graphWarning)
+		}
+
 		// Read the full step to get cause details
 		step, err := s.ReadStep(stepInfo.Hash)
 		if err != nil {
-			// If we can't read the step, just include basic info
+			warnings = append(warnings, fmt.Sprintf("read step %s: %v", stepInfo.Hash, err))
 			enriched[i] = EnrichedStep{
 				StepInfo: stepInfo,
+				Warnings: warnings,
 			}
 			continue
 		}
 
-		// Fetch tool args and results
-		var args, result json.RawMessage
-		if step.Cause.ArgsBlob != "" {
-			argsData, err := s.ReadBlob(step.Cause.ArgsBlob)
-			if err == nil {
-				args = json.RawMessage(argsData)
-			}
-		}
-		if step.Cause.ResultBlob != "" {
-			resultData, err := s.ReadBlob(step.Cause.ResultBlob)
-			if err == nil {
-				result = json.RawMessage(resultData)
-			}
+		causes := step.Causes
+		if len(causes) == 0 && step.Cause.ToolName != "" {
+			causes = []store.Cause{step.Cause}
 		}
 
-		// Extract files from tool arguments (what the tool actually touched)
-		files := extractFilesFromToolArgs(stepInfo.ToolName, args)
+		enrichedCauses := make([]EnrichedCause, 0, len(causes))
+		filesByPath := map[string]bool{}
+		var args, result json.RawMessage
+		for i, cause := range causes {
+			var causeArgs, causeResult json.RawMessage
+			if cause.ArgsBlob != "" {
+				argsData, err := s.ReadBlob(cause.ArgsBlob)
+				if err == nil {
+					causeArgs = rawJSONForOutput(argsData)
+				} else {
+					warnings = append(warnings, fmt.Sprintf("read tool args blob %s: %v", cause.ArgsBlob, err))
+				}
+			}
+			if cause.ResultBlob != "" {
+				resultData, err := s.ReadBlob(cause.ResultBlob)
+				if err == nil {
+					causeResult = rawJSONForOutput(resultData)
+				} else {
+					warnings = append(warnings, fmt.Sprintf("read tool result blob %s: %v", cause.ResultBlob, err))
+				}
+			}
+			if i == 0 {
+				args = causeArgs
+				result = causeResult
+			}
+			for _, file := range extractFilesFromToolArgs(cause.ToolName, causeArgs) {
+				filesByPath[file] = true
+			}
+			enrichedCauses = append(enrichedCauses, EnrichedCause{
+				Cause:  cause,
+				Args:   causeArgs,
+				Result: causeResult,
+			})
+		}
+
+		files := make([]string, 0, len(filesByPath))
+		for file := range filesByPath {
+			files = append(files, file)
+		}
+		sort.Strings(files)
 
 		// Fetch conversation messages from database
 		var messages []json.RawMessage
 		dbMessages, err := idx.GetMessagesForStep(stepInfo.Hash)
-		if err == nil && len(dbMessages) > 0 {
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("read indexed messages: %v", err))
+		} else if len(dbMessages) > 0 {
 			// Group messages: collect tool_use blocks and embed them in assistant message
 			var currentContent []map[string]interface{}
 			var currentRole string
@@ -101,15 +139,22 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 				} else if msg.MessageType == "tool_call" {
 					// Tool call - add to content blocks
 					if msg.ToolInput != "" {
-						inputData, _ := s.ReadBlob(store.Hash(msg.ToolInput))
-						var inputMap map[string]interface{}
-						json.Unmarshal(inputData, &inputMap)
+						inputData, err := s.ReadBlob(store.Hash(msg.ToolInput))
+						if err != nil {
+							warnings = append(warnings, fmt.Sprintf("read tool input blob %s: %v", msg.ToolInput, err))
+							continue
+						}
+						var inputValue interface{}
+						if err := json.Unmarshal(rawJSONForOutput(inputData), &inputValue); err != nil {
+							warnings = append(warnings, fmt.Sprintf("parse tool input blob %s: %v", msg.ToolInput, err))
+							continue
+						}
 
 						currentContent = append(currentContent, map[string]interface{}{
 							"type":  "tool_use",
 							"id":    msg.ToolUseID,
 							"name":  msg.ToolName,
-							"input": inputMap,
+							"input": inputValue,
 						})
 					}
 				}
@@ -133,6 +178,8 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 			transcriptMsgs, err := s.ReconstructTranscript(step.Transcript)
 			if err == nil {
 				messages = transcriptMsgs
+			} else {
+				warnings = append(warnings, fmt.Sprintf("reconstruct transcript %s: %v", step.Transcript, err))
 			}
 		}
 
@@ -158,8 +205,9 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 						IsBinary:  d.IsBinary,
 					}
 				}
+			} else {
+				warnings = append(warnings, fmt.Sprintf("compute file diff: %v", err))
 			}
-			// Silently skip if file diff computation fails (don't fail the whole log)
 		}
 
 		// Add graph prefix if available
@@ -170,6 +218,7 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 
 		enriched[i] = EnrichedStep{
 			StepInfo:    stepInfo,
+			Causes:      enrichedCauses,
 			Files:       files,
 			FileDiffs:   fileDiffs,
 			Args:        args,
@@ -177,10 +226,22 @@ func enrichSteps(s *store.Store, steps []index.StepInfo, computeFileDiffs bool, 
 			Duration:    duration,
 			Messages:    messages,
 			GraphPrefix: graphPrefix,
+			Warnings:    warnings,
 		}
 	}
 
 	return enriched, nil
+}
+
+func rawJSONForOutput(data []byte) json.RawMessage {
+	if json.Valid(data) {
+		return json.RawMessage(data)
+	}
+	encoded, err := json.Marshal(string(data))
+	if err != nil {
+		return json.RawMessage(`null`)
+	}
+	return json.RawMessage(encoded)
 }
 
 // extractFilesFromToolArgs extracts file paths from tool arguments
@@ -208,12 +269,26 @@ func extractFilesFromToolArgs(toolName string, args json.RawMessage) []string {
 		// Bash doesn't directly specify files, leave empty
 		// Could potentially parse from command, but that's fragile
 	default:
-		// Unknown tool, try file_path as fallback
-		if filePath, ok := argsMap["file_path"].(string); ok && filePath != "" {
-			files = append(files, makeRelativePath(filePath))
-		}
+		files = append(files, extractPathFields(argsMap)...)
 	}
 
+	return files
+}
+
+func extractPathFields(argsMap map[string]interface{}) []string {
+	var files []string
+	for _, key := range []string{"file_path", "path", "filename"} {
+		if path, ok := argsMap[key].(string); ok && path != "" {
+			files = append(files, makeRelativePath(path))
+		}
+	}
+	if paths, ok := argsMap["files"].([]interface{}); ok {
+		for _, raw := range paths {
+			if path, ok := raw.(string); ok && path != "" {
+				files = append(files, makeRelativePath(path))
+			}
+		}
+	}
 	return files
 }
 

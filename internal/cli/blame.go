@@ -57,7 +57,7 @@ func BlameCmd() *cobra.Command {
 			// Determine session
 			if sessionID == "" {
 				// Use current/most recent session
-				sessions, err := idx.ListAllSessions()
+				sessions, err := idx.ListHeadedSessions()
 				if err != nil || len(sessions) == 0 {
 					return fmt.Errorf("no sessions found")
 				}

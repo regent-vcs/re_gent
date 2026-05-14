@@ -1,6 +1,9 @@
 package index
 
 import (
+	"database/sql"
+	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -647,3 +650,431 @@ func TestGetMessagesForStep(t *testing.T) {
 		t.Errorf("Second message seq: got %d, want 1", retrieved[1].SeqNum)
 	}
 }
+
+func TestOpen_MigratesLegacySchema(t *testing.T) {
+	root := t.TempDir()
+	s, err := store.Init(root)
+	if err != nil {
+		t.Fatalf("init store: %v", err)
+	}
+
+	db, err := sql.Open("sqlite", filepath.Join(s.Root, "index.db"))
+	if err != nil {
+		t.Fatalf("open raw db: %v", err)
+	}
+	if _, err := db.Exec(legacySchema); err != nil {
+		t.Fatalf("create legacy schema: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close raw db: %v", err)
+	}
+
+	idx, err := Open(s)
+	if err != nil {
+		t.Fatalf("open migrated index: %v", err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	for _, column := range []struct {
+		table string
+		name  string
+	}{
+		{"steps", "origin"},
+		{"steps", "turn_id"},
+		{"messages", "turn_id"},
+		{"messages", "processed_at"},
+		{"sessions", "model"},
+		{"sessions", "permission_mode"},
+		{"sessions", "transcript_path"},
+	} {
+		exists, err := columnExists(idx.db, column.table, column.name)
+		if err != nil {
+			t.Fatalf("check column %s.%s: %v", column.table, column.name, err)
+		}
+		if !exists {
+			t.Fatalf("expected migrated column %s.%s", column.table, column.name)
+		}
+	}
+
+	if err := idx.AppendMessage(Message{
+		ID:          "msg-1",
+		SessionID:   "codex_cli:session",
+		TurnID:      "turn-1",
+		Timestamp:   time.Now().UnixNano(),
+		MessageType: "user",
+		ContentText: "hello",
+	}); err != nil {
+		t.Fatalf("append message: %v", err)
+	}
+
+	blobHash, err := s.WriteBlob([]byte("hello\n"))
+	if err != nil {
+		t.Fatalf("write blob: %v", err)
+	}
+	tree := &store.Tree{Entries: []store.TreeEntry{{Path: "hello.txt", Blob: blobHash}}}
+	treeHash, err := s.WriteTree(tree)
+	if err != nil {
+		t.Fatalf("write tree: %v", err)
+	}
+	step := &store.Step{
+		Tree:           treeHash,
+		Causes:         []store.Cause{{ToolName: "Write", ToolUseID: "tool-1"}},
+		SessionID:      "codex_cli:session",
+		Origin:         "codex_cli",
+		TurnID:         "turn-1",
+		TimestampNanos: time.Now().UnixNano(),
+	}
+	stepHash, err := s.WriteStep(step)
+	if err != nil {
+		t.Fatalf("write step: %v", err)
+	}
+	if err := idx.IndexStep(stepHash, step, tree); err != nil {
+		t.Fatalf("index step: %v", err)
+	}
+
+	steps, err := idx.ListSteps("codex_cli:session", 10)
+	if err != nil {
+		t.Fatalf("list steps: %v", err)
+	}
+	if len(steps) != 1 || steps[0].Origin != "codex_cli" || steps[0].TurnID != "turn-1" {
+		t.Fatalf("unexpected migrated step: %#v", steps)
+	}
+}
+
+func TestOpen_MigratesPreForkLegacySchema(t *testing.T) {
+	root := t.TempDir()
+	s, err := store.Init(root)
+	if err != nil {
+		t.Fatalf("init store: %v", err)
+	}
+
+	db, err := sql.Open("sqlite", filepath.Join(s.Root, "index.db"))
+	if err != nil {
+		t.Fatalf("open raw db: %v", err)
+	}
+	if _, err := db.Exec(preForkLegacySchema); err != nil {
+		t.Fatalf("create pre-fork legacy schema: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close raw db: %v", err)
+	}
+
+	idx, err := Open(s)
+	if err != nil {
+		t.Fatalf("open migrated index: %v", err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	for _, column := range []struct {
+		table string
+		name  string
+	}{
+		{"steps", "origin"},
+		{"steps", "turn_id"},
+		{"messages", "turn_id"},
+		{"messages", "processed_at"},
+		{"sessions", "model"},
+		{"sessions", "permission_mode"},
+		{"sessions", "transcript_path"},
+		{"sessions", "forked_from_session"},
+		{"sessions", "forked_from_step"},
+		{"sessions", "fork_detected_at"},
+	} {
+		exists, err := columnExists(idx.db, column.table, column.name)
+		if err != nil {
+			t.Fatalf("check column %s.%s: %v", column.table, column.name, err)
+		}
+		if !exists {
+			t.Fatalf("expected migrated column %s.%s", column.table, column.name)
+		}
+	}
+
+	if err := idx.UpsertSession(SessionUpdate{
+		ID:             "codex_cli:session",
+		Origin:         "codex_cli",
+		Model:          "gpt-5.5",
+		PermissionMode: "bypassPermissions",
+		TranscriptPath: "/tmp/session.jsonl",
+	}); err != nil {
+		t.Fatalf("upsert migrated session: %v", err)
+	}
+}
+
+func TestSessions_NoHeadSessionsAreNotDefaultable(t *testing.T) {
+	root := t.TempDir()
+	s, err := store.Init(root)
+	if err != nil {
+		t.Fatalf("init store: %v", err)
+	}
+	idx, err := Open(s)
+	if err != nil {
+		t.Fatalf("open index: %v", err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	if err := idx.UpsertSession(SessionUpdate{ID: "codex_cli:no-head", Origin: "codex_cli"}); err != nil {
+		t.Fatalf("upsert no-head session: %v", err)
+	}
+
+	allSessions, err := idx.ListAllSessions()
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(allSessions) != 1 {
+		t.Fatalf("expected stored no-head session, got %d", len(allSessions))
+	}
+
+	headedSessions, err := idx.ListHeadedSessions()
+	if err != nil {
+		t.Fatalf("list headed sessions: %v", err)
+	}
+	if len(headedSessions) != 0 {
+		t.Fatalf("no-head sessions should not be defaultable: %#v", headedSessions)
+	}
+
+	if _, err := idx.SessionHead("codex_cli:no-head"); !errors.Is(err, ErrSessionHasNoSteps) {
+		t.Fatalf("SessionHead error = %v, want ErrSessionHasNoSteps", err)
+	}
+}
+
+func TestRenameSession_MovesLegacyRowsToCanonicalID(t *testing.T) {
+	root := t.TempDir()
+	s, err := store.Init(root)
+	if err != nil {
+		t.Fatalf("init store: %v", err)
+	}
+	idx, err := Open(s)
+	if err != nil {
+		t.Fatalf("open index: %v", err)
+	}
+	defer func() { _ = idx.Close() }()
+
+	oldID := "claude-legacy"
+	newID := "claude_code:claude-legacy"
+	if err := idx.UpsertSession(SessionUpdate{ID: oldID, Origin: "claude_code"}); err != nil {
+		t.Fatalf("upsert old session: %v", err)
+	}
+	if err := idx.AppendMessage(Message{
+		ID:          "msg-1",
+		SessionID:   oldID,
+		Timestamp:   time.Now().UnixNano(),
+		MessageType: "user",
+		ContentText: "hello",
+	}); err != nil {
+		t.Fatalf("append message: %v", err)
+	}
+	ok, err := idx.AppendToolUseMessages(Message{
+		ID:          "call-1",
+		SessionID:   oldID,
+		TurnID:      "turn-1",
+		Timestamp:   time.Now().UnixNano(),
+		MessageType: "tool_call",
+		ToolName:    "Write",
+		ToolUseID:   "tool-1",
+		ToolInput:   "args",
+	}, Message{
+		ID:          "result-1",
+		SessionID:   oldID,
+		TurnID:      "turn-1",
+		Timestamp:   time.Now().UnixNano(),
+		MessageType: "tool_result",
+		ToolName:    "Write",
+		ToolUseID:   "tool-1",
+		ToolOutput:  "result",
+	})
+	if err != nil {
+		t.Fatalf("append tool use messages: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected first tool use append to insert messages")
+	}
+
+	blobHash, err := s.WriteBlob([]byte("hello\n"))
+	if err != nil {
+		t.Fatalf("write blob: %v", err)
+	}
+	tree := &store.Tree{Entries: []store.TreeEntry{{Path: "hello.txt", Blob: blobHash}}}
+	treeHash, err := s.WriteTree(tree)
+	if err != nil {
+		t.Fatalf("write tree: %v", err)
+	}
+	step := &store.Step{
+		Tree:           treeHash,
+		Cause:          store.Cause{ToolName: "Write", ToolUseID: "tool-1"},
+		SessionID:      oldID,
+		Origin:         "claude_code",
+		TimestampNanos: time.Now().UnixNano(),
+	}
+	stepHash, err := s.WriteStep(step)
+	if err != nil {
+		t.Fatalf("write step: %v", err)
+	}
+	if err := idx.IndexStep(stepHash, step, tree); err != nil {
+		t.Fatalf("index step: %v", err)
+	}
+	if err := idx.InsertJSONLSnapshot(oldID, 1, blobHash); err != nil {
+		t.Fatalf("insert jsonl snapshot: %v", err)
+	}
+	if err := idx.UpdateSessionLastProcessed(oldID, "msg-1", blobHash); err != nil {
+		t.Fatalf("update transcript state: %v", err)
+	}
+
+	changed, err := idx.RenameSession(oldID, newID, "claude_code")
+	if err != nil {
+		t.Fatalf("rename session: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected rows to be renamed")
+	}
+
+	steps, err := idx.ListSteps(newID, 10)
+	if err != nil {
+		t.Fatalf("list renamed steps: %v", err)
+	}
+	if len(steps) != 1 || steps[0].Hash != stepHash {
+		t.Fatalf("unexpected renamed steps: %#v", steps)
+	}
+	messages, err := idx.GetAllPendingMessages(newID)
+	if err != nil {
+		t.Fatalf("get renamed messages: %v", err)
+	}
+	if len(messages) != 3 || messages[0].SessionID != newID || messages[1].SessionID != newID || messages[2].SessionID != newID {
+		t.Fatalf("unexpected renamed messages: %#v", messages)
+	}
+	ok, err = idx.AppendToolUseMessages(Message{
+		ID:          "call-duplicate",
+		SessionID:   newID,
+		TurnID:      "turn-1",
+		Timestamp:   time.Now().UnixNano(),
+		MessageType: "tool_call",
+		ToolName:    "Write",
+		ToolUseID:   "tool-1",
+		ToolInput:   "args",
+	}, Message{
+		ID:          "result-duplicate",
+		SessionID:   newID,
+		TurnID:      "turn-1",
+		Timestamp:   time.Now().UnixNano(),
+		MessageType: "tool_result",
+		ToolName:    "Write",
+		ToolUseID:   "tool-1",
+		ToolOutput:  "result",
+	})
+	if err != nil {
+		t.Fatalf("append duplicate canonical tool use: %v", err)
+	}
+	if ok {
+		t.Fatal("renamed tool use guard did not suppress duplicate append")
+	}
+	if oldMessages, err := idx.GetAllPendingMessages(oldID); err != nil || len(oldMessages) != 0 {
+		t.Fatalf("old messages remain: messages=%#v err=%v", oldMessages, err)
+	}
+	if _, _, err := idx.SessionLastProcessedMessage(newID); err != nil {
+		t.Fatalf("renamed transcript state missing: %v", err)
+	}
+}
+
+const legacySchema = `
+CREATE TABLE steps (
+	id          TEXT PRIMARY KEY,
+	parent_id   TEXT,
+	session_id  TEXT NOT NULL,
+	agent_id    TEXT,
+	ts_nanos    INTEGER NOT NULL,
+	tool_name   TEXT NOT NULL,
+	tool_use_id TEXT NOT NULL,
+	tree_hash   TEXT NOT NULL,
+	transcript_hash TEXT
+);
+CREATE TABLE step_files (
+	step_id   TEXT NOT NULL,
+	path      TEXT NOT NULL,
+	blob_hash TEXT NOT NULL,
+	PRIMARY KEY (step_id, path)
+);
+CREATE TABLE sessions (
+	id            TEXT PRIMARY KEY,
+	origin        TEXT NOT NULL,
+	started_at    INTEGER NOT NULL,
+	last_seen_at  INTEGER NOT NULL,
+	head_step_id  TEXT,
+	forked_from_session TEXT,
+	forked_from_step    TEXT,
+	fork_detected_at    INTEGER
+);
+CREATE TABLE session_transcript (
+	session_id           TEXT PRIMARY KEY,
+	last_message_id      TEXT NOT NULL,
+	last_transcript_hash TEXT NOT NULL
+);
+CREATE TABLE messages (
+	id              TEXT PRIMARY KEY,
+	session_id      TEXT NOT NULL,
+	step_id         TEXT,
+	seq_num         INTEGER NOT NULL,
+	timestamp       INTEGER NOT NULL,
+	message_type    TEXT NOT NULL,
+	content_text    TEXT,
+	tool_name       TEXT,
+	tool_use_id     TEXT,
+	tool_input      TEXT,
+	tool_output     TEXT
+);
+CREATE TABLE jsonl_snapshots (
+	session_id      TEXT NOT NULL,
+	captured_at     INTEGER NOT NULL,
+	jsonl_blob      TEXT NOT NULL,
+	PRIMARY KEY (session_id, captured_at)
+);
+`
+
+const preForkLegacySchema = `
+CREATE TABLE steps (
+	id          TEXT PRIMARY KEY,
+	parent_id   TEXT,
+	session_id  TEXT NOT NULL,
+	agent_id    TEXT,
+	ts_nanos    INTEGER NOT NULL,
+	tool_name   TEXT NOT NULL,
+	tool_use_id TEXT NOT NULL,
+	tree_hash   TEXT NOT NULL,
+	transcript_hash TEXT
+);
+CREATE TABLE step_files (
+	step_id   TEXT NOT NULL,
+	path      TEXT NOT NULL,
+	blob_hash TEXT NOT NULL,
+	PRIMARY KEY (step_id, path)
+);
+CREATE TABLE sessions (
+	id            TEXT PRIMARY KEY,
+	origin        TEXT NOT NULL,
+	started_at    INTEGER NOT NULL,
+	last_seen_at  INTEGER NOT NULL,
+	head_step_id  TEXT
+);
+CREATE TABLE session_transcript (
+	session_id           TEXT PRIMARY KEY,
+	last_message_id      TEXT NOT NULL,
+	last_transcript_hash TEXT NOT NULL
+);
+CREATE TABLE messages (
+	id              TEXT PRIMARY KEY,
+	session_id      TEXT NOT NULL,
+	step_id         TEXT,
+	seq_num         INTEGER NOT NULL,
+	timestamp       INTEGER NOT NULL,
+	message_type    TEXT NOT NULL,
+	content_text    TEXT,
+	tool_name       TEXT,
+	tool_use_id     TEXT,
+	tool_input      TEXT,
+	tool_output     TEXT
+);
+CREATE TABLE jsonl_snapshots (
+	session_id      TEXT NOT NULL,
+	captured_at     INTEGER NOT NULL,
+	jsonl_blob      TEXT NOT NULL,
+	PRIMARY KEY (session_id, captured_at)
+);
+`
