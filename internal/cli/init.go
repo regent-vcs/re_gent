@@ -64,28 +64,48 @@ func InitCmd() *cobra.Command {
 
 			printHeader()
 
+			reinit := pathExists(filepath.Join(cwd, ".regent"))
+
 			printStep(1, 3, "Initialize Repository")
-			s, err := store.Init(cwd)
-			if err != nil {
-				return err
-			}
+			if reinit {
+				s, err := store.Open(filepath.Join(cwd, ".regent"))
+				if err != nil {
+					return err
+				}
+				idx, err := index.Open(s)
+				if err != nil {
+					return fmt.Errorf("open index: %w", err)
+				}
+				defer func() { _ = idx.Close() }()
 
-			idx, err := index.Open(s)
-			if err != nil {
-				return fmt.Errorf("initialize index: %w", err)
-			}
-			defer func() { _ = idx.Close() }()
+				fmt.Printf("  %s .regent/ already exists (skipping creation)\n", style.DimText("-"))
+				fmt.Println()
+			} else {
+				s, err := store.Init(cwd)
+				if err != nil {
+					return err
+				}
 
-			if err := createRegentGitignore(cwd); err != nil {
-				fmt.Printf("  %s Could not create .regent/.gitignore: %v\n", style.Warning(""), err)
-			}
+				idx, err := index.Open(s)
+				if err != nil {
+					return fmt.Errorf("initialize index: %w", err)
+				}
+				defer func() { _ = idx.Close() }()
 
-			fmt.Printf("  %s Created .regent/ directory\n", style.Success(""))
-			fmt.Printf("  %s Initialized object store\n", style.Success(""))
-			fmt.Printf("  %s Created SQLite index\n", style.Success(""))
-			fmt.Println()
+				if err := createRegentGitignore(cwd); err != nil {
+					fmt.Printf("  %s Could not create .regent/.gitignore: %v\n", style.Warning(""), err)
+				}
+
+				fmt.Printf("  %s Created .regent/ directory\n", style.Success(""))
+				fmt.Printf("  %s Initialized object store\n", style.Success(""))
+				fmt.Printf("  %s Created SQLite index\n", style.Success(""))
+				fmt.Println()
+			}
 
 			printStep(2, 3, "Configure Agent Hooks")
+			if reinit {
+				printExistingHooks(cwd)
+			}
 			installedTargets := targets
 			if skipHook {
 				fmt.Printf("  %s Hook configuration skipped\n", style.DimText("-"))
@@ -538,6 +558,91 @@ func isRegentHookCommand(command string) bool {
 	}
 
 	return len(fields) >= 3 && fields[0] == "go" && fields[1] == "run" && strings.Contains(fields[2], "cmd/rgt")
+}
+
+func printExistingHooks(projectRoot string) {
+	fmt.Println("Currently configured:")
+	fmt.Println()
+	found := false
+
+	settingsPath := filepath.Join(projectRoot, ".claude", "settings.json")
+	if data, err := os.ReadFile(settingsPath); err == nil {
+		var settings map[string]interface{}
+		if json.Unmarshal(data, &settings) == nil {
+			if hooks, ok := settings["hooks"].(map[string]interface{}); ok && len(hooks) > 0 {
+				for event := range hooks {
+					groups := normalizeHookGroups(hooks[event])
+					for _, g := range groups {
+						if gm, ok := g.(map[string]interface{}); ok {
+							entries, _ := normalizeHookEntries(gm["hooks"])
+							for _, e := range entries {
+								if em, ok := e.(map[string]interface{}); ok {
+									if cmd, _ := em["command"].(string); isRegentHookCommand(cmd) {
+										if !found {
+											fmt.Printf("  %s Claude Code\n", style.Success(""))
+											found = true
+										}
+										goto doneClaudeCheck
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+doneClaudeCheck:
+
+	found = false
+	configPath := filepath.Join(projectRoot, ".codex", "config.toml")
+	if data, err := os.ReadFile(configPath); err == nil {
+		var config map[string]interface{}
+		if toml.Unmarshal(data, &config) == nil {
+			if hooks, ok := config["hooks"].(map[string]interface{}); ok {
+				for event := range hooks {
+					groups := normalizeHookGroups(hooks[event])
+					for _, g := range groups {
+						if gm, ok := g.(map[string]interface{}); ok {
+							entries, _ := normalizeHookEntries(gm["hooks"])
+							for _, e := range entries {
+								if em, ok := e.(map[string]interface{}); ok {
+									if cmd, _ := em["command"].(string); isRegentHookCommand(cmd) {
+										if !found {
+											fmt.Printf("  %s Codex\n", style.Success(""))
+											found = true
+										}
+										goto doneCodexCheck
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+doneCodexCheck:
+
+	opencodeConfig := findOpenCodeConfig(projectRoot)
+	if opencodeConfig != "" {
+		if data, err := os.ReadFile(opencodeConfig); err == nil {
+			cleaned := stripJSONComments(string(data))
+			var config map[string]interface{}
+			if json.Unmarshal([]byte(cleaned), &config) == nil {
+				if plugins, ok := config["plugin"].([]interface{}); ok {
+					for _, p := range plugins {
+						if s, ok := p.(string); ok && strings.Contains(s, "regent") {
+							fmt.Printf("  %s OpenCode\n", style.Success(""))
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	fmt.Println()
 }
 
 func printManualInstructions(targets []agentTarget) {
