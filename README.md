@@ -19,9 +19,8 @@
 
 [![CI Status](https://img.shields.io/github/actions/workflow/status/regent-vcs/regent/ci.yml?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/regent-vcs/regent/actions/workflows/ci.yml)
 [![Contributions Welcome](https://img.shields.io/badge/Contributions-Welcome-10b981?style=for-the-badge&logo=github)](CONTRIBUTING.md)
-[![Claude Code Compatible](https://img.shields.io/badge/Claude%20Code-Compatible-6366f1?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/regent-vcs/regent)
+[![Claude Code Compatible](https://img.shields.io/badge/Claude%20Code-Compatible-6366f1?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/regent-vcs/regent) [![Codex Compatible](https://img.shields.io/badge/Codex-Compatible-10b981?style=for-the-badge&logo=openai&logoColor=white)](https://github.com/regent-vcs/regent)
 [![Discord](https://img.shields.io/discord/1503732569622053004?style=for-the-badge&logo=discord&logoColor=white&color=5865F2)](https://discord.gg/Unf24KMh)
-[![Codex Compatible](https://img.shields.io/badge/Codex-Compatible-10b981?style=for-the-badge&logo=openai&logoColor=white)](https://github.com/regent-vcs/regent)
 
 </div>
 
@@ -30,8 +29,8 @@
 ## Demo
 
 <div align="center">
-  <img src="assets/demo-fast.gif" alt="re_gent tracking Claude Code activity" width="100%"/>
-  <p><em>Every tool call is automatically captured. No manual commits needed.</em></p>
+  <img src="assets/demo-fast.gif" alt="re_gent tracking Claude Code and Codex activity" width="100%"/>
+  <p><em>Every agent turn is automatically captured. No manual commits needed.</em></p>
 </div>
 
 ---
@@ -102,10 +101,10 @@ Prompt:  "Add error handling to the request handler"
 $ rgt sessions
 
 Active Sessions:
-claude-20260502-143021  |  3 steps  |  Last: 2 min ago
-claude-20260502-091534  |  7 steps  |  Last: 2 hours ago
+claude_code:claude-20260502-143021  |  3 steps  |  Last: 2 min ago
+codex_cli:codex-20260502-091534     |  7 steps  |  Last: 2 hours ago
 
-$ rgt log --session claude-20260502-143021
+$ rgt log --session claude_code:claude-20260502-143021
 # Filter history by session
 ```
 
@@ -152,7 +151,7 @@ You know this pain:
 
 - **`rgt log`** — what did this session do?
 - **`rgt blame`** — which prompt wrote this line?
-- **`rgt rewind`** — restore to any previous step (coming soon)
+- **`rgt show`** — inspect the full context for any step
 
 We gave agents write access to our codebases. We did not give ourselves git for it. re_gent fixes that.
 
