@@ -21,6 +21,7 @@ import (
 const (
 	OriginClaudeCode = "claude_code"
 	OriginCodexCLI   = "codex_cli"
+	OriginOpenCode   = "opencode"
 
 	maxRefUpdateAttempts = 8
 )
@@ -707,7 +708,7 @@ func normalizeTurnScope(origin, turnID string) (turnScope, error) {
 	if turnID != "" {
 		return turnScope{id: turnID}, nil
 	}
-	if origin == OriginClaudeCode {
+	if origin == OriginClaudeCode || origin == OriginOpenCode {
 		return turnScope{allTurns: true}, nil
 	}
 	return turnScope{}, fmt.Errorf("turn id is required")
