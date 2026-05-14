@@ -8,7 +8,7 @@ require (
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	github.com/sergi/go-diff v1.3.1
 	github.com/spf13/cobra v1.8.0
-	lukechampine.com/blake3 v1.2.1
+	lukechampine.com/blake3 v1.4.1
 	modernc.org/sqlite v1.28.0
 )
 
