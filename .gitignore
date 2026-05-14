@@ -2,6 +2,7 @@
 /rgt
 /dist/
 /completions/
+bin/
 *.exe
 *.dll
 *.so
@@ -41,3 +42,10 @@ Desktop.ini
 *.pid
 *.seed
 *.pid.lock
+
+# Demo/dev artifacts
+demo/.agents/
+demo/.opencode/
+demo/.codex/
+plugins/
+simple.py

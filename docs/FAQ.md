@@ -14,8 +14,7 @@ What problem does re_gent solve?
   The agent black box. Your agent makes 47 changes across 12 files. Three 
   hours later, tests fail. Which change broke it? Which prompt caused it?
   
-  re_gent: "rgt blame" shows the exact step. "rgt show" shows full context. 
-  "rgt rewind" undoes it.
+  re_gent: "rgt blame" shows the exact step. "rgt show" shows full context.
 
 
 Why not just use git commits?
@@ -29,7 +28,7 @@ Why not just use git commits?
 Should we treat agents like developers on the team?
 
   If they write code, yes. Their work should be auditable (blame), 
-  reversible (rewind), and attributed (which prompt, which session). You 
+  inspectable (show), and attributed (which prompt, which session). You 
   wouldn't let a human commit without record. Don't let agents either.
 
 
@@ -52,16 +51,6 @@ What's the long-term vision?
 
 THE PROBLEM SPACE
 =================
-
-What's the "agent undo problem"?
-
-  You're pairing with Claude. It refactors your auth system. Three prompts 
-  later, you realize it broke session handling. Your options: manual 
-  archaeology, git revert (loses good work), or start over.
-  
-  re_gent: "rgt blame auth.go" → find breaking step → "rgt rewind" → back to 
-  good state, conversation intact.
-
 
 What's the "which prompt did this" problem?
 
@@ -100,17 +89,17 @@ When would I use "rgt blame"?
   modular' - extracted processRequest()" → now you know the refactor broke it.
 
 
-When would I use "rgt rewind"?
+When would I use "rgt show"?
 
-  Claude refactored auth (good), added rate limiting (good), "optimized" 
-  queries (broke production). Changes are interleaved. Run "rgt log" → find 
-  good state → "rgt rewind 5e2b8c71" → back to working code.
+  You found a suspicious change via blame. Run "rgt show <step-hash>" to see 
+  the full conversation context: what the user asked, what the agent decided 
+  to do, and the exact tool calls it made.
 
 
 When would I use "rgt sessions"?
 
   You ran three agent sessions yesterday. One succeeded, one broke tests, one 
-  is still running. "rgt sessions --verbose" shows: what each did, how many 
+  is still running. "rgt sessions" shows: what each did, how many 
   files, duration, and which files overlap.
 
 
@@ -126,19 +115,19 @@ GETTING STARTED
 
 How do I install it?
 
-  brew install regent-vcs/tap/rgt (or: cargo install rgt)
+  brew install regent-vcs/tap/rgt
   Then: rgt init in your project.
 
 
 Which AI tools work?
 
-  Currently: Claude Code (all platforms)
-  Planned: Cursor, Cline, Continue, Aider
+  Currently: Claude Code, Codex CLI, and OpenCode.
+  Planned: Cursor, Cline, Continue.
 
 
 Do I need to change my workflow?
 
-  No. re_gent runs silently via hooks.
+  No. re_gent runs silently via hooks. Zero configuration after `rgt init`.
 
 
 TECHNICAL
@@ -156,7 +145,8 @@ Does it slow down my agent?
 
 How much disk space?
 
-  10-50MB for several hours of work.
+  10-50MB for several hours of work. Content-addressed storage deduplicates 
+  identical file content automatically.
 
 
 Does it replace git?
@@ -166,39 +156,35 @@ Does it replace git?
 
 Should I commit .regent/ to git?
 
-  Usually no. Exception: if your team wants shared agent audit trails.
+  Usually no. Add it to .gitignore. Exception: if your team wants shared 
+  agent audit trails.
 
 
 Can I run multiple agent sessions safely?
 
-  Yes. Each gets its own branch. Conflicts are detected.
+  Yes. Each gets its own branch. CAS-based ref updates prevent corruption 
+  under concurrent writes.
 
 
 ADVANCED
 ========
 
-Can I export history?
-
-  rgt export --format json
-  rgt export --redact-secrets (for sharing)
-
-
 Can I use it in CI/CD?
 
-  Yes. Run agents in CI, then "rgt log --format markdown" for PR descriptions.
+  Yes. Run agents in CI, then "rgt log --json" for structured output.
 
 
 What's coming next?
 
-  v1 (Q3 2026): Conversation rewind, session merge, monorepo performance
-  v2 (Q4 2026): Multi-tool orchestration, remote storage
-  v3 (2027): Replay mode, model comparison, team features
+  Planned: Rewind/fork operations, additional tool adapters (Cursor, Cline, 
+  Continue), session sharing and merge, garbage collection.
+  See ROADMAP.md for details.
 
 
 Will it always be free?
 
-  CLI: always free and open source (MIT)
-  Potential paid: hosted sync, team SaaS, enterprise support
+  CLI: always free and open source (Apache 2.0).
+  Potential paid: hosted sync, team SaaS, enterprise support.
 
 
 COMMUNITY
@@ -206,12 +192,12 @@ COMMUNITY
 
 How do I contribute?
 
-  github.com/regent-vcs/regent
+  github.com/regent-vcs/regent — see CONTRIBUTING.md
 
 
 Where can I get help?
 
-  GitHub Discussions or Discord (coming soon)
+  GitHub Discussions or Discord: https://discord.gg/Unf24KMh
 
 
 How do I report bugs?

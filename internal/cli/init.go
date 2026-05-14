@@ -425,7 +425,6 @@ func stripJSONComments(s string) string {
 	return result.String()
 }
 
-
 func enableCodexHooksFeature(config map[string]interface{}) {
 	features, _ := config["features"].(map[string]interface{})
 	if features == nil {
@@ -563,7 +562,6 @@ func isRegentHookCommand(command string) bool {
 func printExistingHooks(projectRoot string) {
 	fmt.Println("Currently configured:")
 	fmt.Println()
-	found := false
 
 	settingsPath := filepath.Join(projectRoot, ".claude", "settings.json")
 	if data, err := os.ReadFile(settingsPath); err == nil {
@@ -578,10 +576,7 @@ func printExistingHooks(projectRoot string) {
 							for _, e := range entries {
 								if em, ok := e.(map[string]interface{}); ok {
 									if cmd, _ := em["command"].(string); isRegentHookCommand(cmd) {
-										if !found {
-											fmt.Printf("  %s Claude Code\n", style.Success(""))
-											found = true
-										}
+										fmt.Printf("  %s Claude Code\n", style.Success(""))
 										goto doneClaudeCheck
 									}
 								}
@@ -594,7 +589,6 @@ func printExistingHooks(projectRoot string) {
 	}
 doneClaudeCheck:
 
-	found = false
 	configPath := filepath.Join(projectRoot, ".codex", "config.toml")
 	if data, err := os.ReadFile(configPath); err == nil {
 		var config map[string]interface{}
@@ -608,10 +602,7 @@ doneClaudeCheck:
 							for _, e := range entries {
 								if em, ok := e.(map[string]interface{}); ok {
 									if cmd, _ := em["command"].(string); isRegentHookCommand(cmd) {
-										if !found {
-											fmt.Printf("  %s Codex\n", style.Success(""))
-											found = true
-										}
+										fmt.Printf("  %s Codex\n", style.Success(""))
 										goto doneCodexCheck
 									}
 								}

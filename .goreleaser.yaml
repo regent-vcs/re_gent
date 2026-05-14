@@ -32,11 +32,11 @@ builds:
       - -X main.date={{.Date}}
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
     files:
       - completions/*
 
@@ -44,7 +44,7 @@ checksum:
   name_template: 'checksums.txt'
 
 snapshot:
-  name_template: "{{ incpatch .Version }}-next"
+  version_template: "{{ incpatch .Version }}-next"
 
 changelog:
   sort: asc
@@ -57,7 +57,7 @@ changelog:
 release:
   github:
     owner: regent-vcs
-    name: re_gent
+    name: regent
   draft: false
   prerelease: auto
   name_template: "{{.ProjectName}} v{{.Version}}"
@@ -72,7 +72,7 @@ brews:
     commit_author:
       name: regent-bot
       email: bot@regent-vcs.dev
-    homepage: "https://github.com/regent-vcs/re_gent"
+    homepage: "https://github.com/regent-vcs/regent"
     description: "Git for AI agents - content-addressed version control for agent activity"
     license: "Apache-2.0"
     install: |

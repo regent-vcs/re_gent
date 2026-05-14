@@ -108,7 +108,7 @@ func validateConsistency(s *store.Store, idx *index.DB) error {
 			fmt.Printf("    • %s\n", issue)
 		}
 		fmt.Println()
-		fmt.Println("  Inspect .regent/log/hook-error.log; full reindex repair is not implemented yet.")
+		fmt.Println("  Inspect .regent/log/hook-error.log for details. Run `rgt init` to reinitialize if needed.")
 		return fmt.Errorf("consistency check failed")
 	}
 
