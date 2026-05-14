@@ -68,6 +68,7 @@ brews:
     repository:
       owner: regent-vcs
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     commit_author:
       name: regent-bot
       email: bot@regent-vcs.dev
