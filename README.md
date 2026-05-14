@@ -58,6 +58,20 @@ rgt blame src/file.go:42
 
 That's it. Your agent activity is now auditable.
 
+### Codex Desktop (PoC Sidecar)
+
+Codex Desktop is supported through a local sidecar adapter that reads rollout JSONL from `~/.codex/sessions/**/*.jsonl`.
+
+```bash
+# Import existing Codex history for the current project
+rgt codex import --project .
+
+# Watch an active Codex project and record turns continuously
+rgt codex watch --project . --poll 2s
+```
+
+For setup details, replay behavior, and current limitations, see [docs/codex-integration.md](docs/codex-integration.md).
+
 ---
 
 ## What You Get
@@ -285,6 +299,8 @@ npm install && npm run compile
 | `rgt status` | Show current repository state |
 | `rgt show <step>` | Display full context for a step (tool call + conversation) |
 | `rgt blame <path>[:<line>]` | Show per-line provenance for a file |
+| `rgt codex import` | Import local Codex Desktop rollout history for this project |
+| `rgt codex watch` | Watch local Codex Desktop rollout history and record live steps |
 | `rgt cat <hash>` | Inspect any object by hash (debug) |
 | `rgt version` | Print version information |
 | `rgt completion` | Generate shell completion scripts |

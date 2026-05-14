@@ -22,6 +22,7 @@ func main() {
 	rootCmd.AddCommand(cli.BlameCmd())
 	rootCmd.AddCommand(cli.ShowCmd())
 	rootCmd.AddCommand(cli.SessionsCmd())
+	rootCmd.AddCommand(cli.CodexCmd())
 	rootCmd.AddCommand(cli.HookCmd())
 	rootCmd.AddCommand(MessageHookCmd())
 	rootCmd.AddCommand(ToolBatchHookCmd())

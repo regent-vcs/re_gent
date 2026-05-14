@@ -133,7 +133,11 @@ How do I install it?
 Which AI tools work?
 
   Currently: Claude Code (all platforms)
+  PoC adapter: Codex Desktop via local rollout JSONL import/watch
   Planned: Cursor, Cline, Continue, Aider
+
+  Codex setup, replay rules, and current limitations:
+  docs/codex-integration.md
 
 
 Do I need to change my workflow?
@@ -172,6 +176,10 @@ Should I commit .regent/ to git?
 Can I run multiple agent sessions safely?
 
   Yes. Each gets its own branch. Conflicts are detected.
+  
+  Codex-specific note: the current sidecar can warn when multiple active
+  Codex sessions overlap on the same project, because project-level
+  attribution may become approximate in that case.
 
 
 ADVANCED

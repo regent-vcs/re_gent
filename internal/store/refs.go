@@ -41,7 +41,7 @@ func (s *Store) UpdateRef(name string, expectedOld Hash, newHash Hash) error {
 	// O_CREATE|O_EXCL is atomic across POSIX filesystems
 	fd, err := syscall.Open(lockPath, syscall.O_CREAT|syscall.O_EXCL|syscall.O_WRONLY, 0o644)
 	if err != nil {
-		if errors.Is(err, syscall.EEXIST) {
+		if errors.Is(err, syscall.EEXIST) || strings.Contains(strings.ToLower(err.Error()), "file exists") {
 			return ErrRefConflict
 		}
 		return fmt.Errorf("acquire lock: %w", err)
@@ -66,7 +66,7 @@ func (s *Store) UpdateRef(name string, expectedOld Hash, newHash Hash) error {
 
 	// Write new value
 	newContent := string(newHash) + "\n"
-	return atomicWriteFile(refPath, []byte(newContent))
+	return atomicWriteFileReplacing(refPath, []byte(newContent))
 }
 
 // DeleteRef deletes a ref using CAS (compare-and-swap) with lock files.

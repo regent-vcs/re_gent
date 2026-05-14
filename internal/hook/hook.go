@@ -52,7 +52,7 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 	}
 
 	// 5. Get parent step (if any)
-	parentHash, _ := s.ReadRef("sessions/" + p.SessionID)
+	parentHash, _ := s.ReadSessionRef(p.SessionID)
 
 	// 6. Write tool args and result as blobs (needed for pre-step hash)
 	argsHash, err := s.WriteBlob(p.ToolInput)
@@ -98,7 +98,7 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 
 	// 13. CAS update session ref (with retry) - SOURCE OF TRUTH
 	// Refs must be updated first to maintain consistency. If this fails, nothing is committed.
-	if err := s.UpdateRefWithRetry("sessions/"+p.SessionID, parentHash, stepHash, 8); err != nil {
+	if err := s.UpdateSessionRefWithRetry(p.SessionID, parentHash, stepHash, 8); err != nil {
 		return logError(s, fmt.Errorf("update ref: %w", err))
 	}
 
