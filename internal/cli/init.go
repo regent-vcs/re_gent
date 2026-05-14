@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/huh"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/regent-vcs/regent/internal/index"
 	"github.com/regent-vcs/regent/internal/store"
@@ -23,10 +24,12 @@ type hookInstallResult struct {
 }
 
 const (
-	agentAuto   agentTarget = "auto"
-	agentClaude agentTarget = "claude"
-	agentCodex  agentTarget = "codex"
-	agentBoth   agentTarget = "both"
+	agentAuto     agentTarget = "auto"
+	agentClaude   agentTarget = "claude"
+	agentCodex    agentTarget = "codex"
+	agentOpenCode agentTarget = "opencode"
+	agentBoth     agentTarget = "both"
+	agentAll      agentTarget = "all"
 
 	claudeUserHook      = "rgt message-hook user"
 	claudeAssistantHook = "rgt message-hook assistant"
@@ -83,18 +86,24 @@ func InitCmd() *cobra.Command {
 			fmt.Println()
 
 			printStep(2, 3, "Configure Agent Hooks")
+			installedTargets := targets
 			if skipHook {
 				fmt.Printf("  %s Hook configuration skipped\n", style.DimText("-"))
 				printManualInstructions(targets)
-			} else if err := offerHookInstall(cwd, targets, input); err != nil {
-				fmt.Printf("  %s Could not configure hooks: %v\n", style.Warning(""), err)
-				printManualInstructions(targets)
+			} else {
+				selected, err := offerHookInstall(cwd, targets, input)
+				if err != nil {
+					fmt.Printf("  %s Could not configure hooks: %v\n", style.Warning(""), err)
+					printManualInstructions(targets)
+				} else if len(selected) > 0 {
+					installedTargets = selected
+				}
 			}
 
 			printStep(3, 3, "Install Agent Skills")
 			if skipSkills {
 				fmt.Printf("  %s Skill installation skipped\n", style.DimText("-"))
-			} else if err := offerSkillInstall(cwd, targets, input); err != nil {
+			} else if err := offerSkillInstall(cwd, installedTargets, input); err != nil {
 				fmt.Printf("  %s Could not install skills: %v\n", style.Warning(""), err)
 			}
 
@@ -105,7 +114,7 @@ func InitCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&skipHook, "skip-hook", false, "Skip automatic hook configuration")
 	cmd.Flags().BoolVar(&skipSkills, "skip-skills", false, "Skip agent skill installation")
-	cmd.Flags().StringVar(&agent, "agent", string(agentAuto), "Agent hooks to configure: auto, claude, codex, both")
+	cmd.Flags().StringVar(&agent, "agent", string(agentAuto), "Agent hooks to configure: auto, claude, codex, opencode, all")
 
 	return cmd
 }
@@ -131,10 +140,10 @@ func printSummary(projectRoot string, targets []agentTarget) {
 	fmt.Println()
 	fmt.Println("Next steps:")
 	fmt.Println("  - Start an agent session in this directory")
-	fmt.Println("  - Make changes with Claude Code or Codex")
+	fmt.Println("  - Make changes with Claude Code, Codex, or OpenCode")
 	fmt.Println("  - Run: rgt log")
 	fmt.Println("  - Run: rgt blame <file>")
-	if hasAgent(targets, agentClaude) || hasAgent(targets, agentCodex) {
+	if hasAgent(targets, agentClaude) || hasAgent(targets, agentCodex) || hasAgent(targets, agentOpenCode) {
 		fmt.Println("  - Agent skills: log, blame, show")
 	}
 	if hasAgent(targets, agentCodex) {
@@ -145,51 +154,68 @@ func printSummary(projectRoot string, targets []agentTarget) {
 	fmt.Println()
 }
 
-func offerHookInstall(projectRoot string, targets []agentTarget, input *bufio.Reader) error {
+func offerHookInstall(projectRoot string, targets []agentTarget, _ *bufio.Reader) ([]agentTarget, error) {
 	fmt.Printf("%s captures step history automatically via agent hooks.\n", style.Brand("re_gent"))
 	fmt.Println()
+
+	options := make([]huh.Option[agentTarget], 0, len(targets))
 	for _, target := range targets {
 		switch target {
 		case agentClaude:
-			fmt.Println("  - Claude Code: .claude/settings.json")
+			options = append(options, huh.NewOption("Claude Code   (.claude/settings.json)", agentClaude))
 		case agentCodex:
-			fmt.Println("  - Codex: .codex/config.toml")
+			options = append(options, huh.NewOption("Codex         (.codex/config.toml)", agentCodex))
+		case agentOpenCode:
+			options = append(options, huh.NewOption("OpenCode      (opencode.jsonc + npm plugin)", agentOpenCode))
 		}
 	}
-	fmt.Println()
-	fmt.Print(style.Prompt("Enable automatic tracking?", "[Y/n]:"))
 
-	confirmed, err := confirmedDefaultYes(input)
-	if err != nil {
-		return fmt.Errorf("read hook confirmation: %w", err)
+	var selected []agentTarget
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewMultiSelect[agentTarget]().
+				Title("Select agents to configure").
+				Description("Use arrow keys to navigate, space to toggle, enter to confirm").
+				Options(options...).
+				Value(&selected),
+		),
+	)
+
+	if err := form.Run(); err != nil {
+		return nil, fmt.Errorf("agent selection: %w", err)
 	}
-	if !confirmed {
-		fmt.Println()
+
+	if len(selected) == 0 {
 		fmt.Printf("  %s Skipped - you can configure hooks manually later\n", style.DimText("-"))
 		fmt.Println()
-		return nil
+		return nil, nil
 	}
 
-	for _, target := range targets {
+	for _, target := range selected {
 		switch target {
 		case agentClaude:
 			result, err := installClaudeHook(projectRoot)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			printHookInstallWarning(result)
 			fmt.Printf("  %s Claude Code hooks configured\n", style.Success(""))
 		case agentCodex:
 			result, err := installCodexHook(projectRoot)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			printHookInstallWarning(result)
 			fmt.Printf("  %s Codex hooks configured\n", style.Success(""))
+		case agentOpenCode:
+			if err := installOpenCodeHook(projectRoot); err != nil {
+				return nil, err
+			}
+			fmt.Printf("  %s OpenCode plugin installed\n", style.Success(""))
 		}
 	}
 	fmt.Println()
-	return nil
+	return selected, nil
 }
 
 func printHookInstallWarning(result hookInstallResult) {
@@ -284,6 +310,101 @@ func installCodexHook(projectRoot string) (hookInstallResult, error) {
 
 	return result, nil
 }
+
+func installOpenCodeHook(projectRoot string) error {
+	opencodeDir := filepath.Join(projectRoot, ".opencode")
+	if err := os.MkdirAll(opencodeDir, 0o755); err != nil {
+		return fmt.Errorf("create .opencode directory: %w", err)
+	}
+
+	if err := npmInstallOpenCodePlugin(opencodeDir); err != nil {
+		return err
+	}
+
+	return registerOpenCodePlugin(projectRoot)
+}
+
+func npmInstallOpenCodePlugin(opencodeDir string) error {
+	fmt.Printf("  %s Installing @regent-vcs/opencode-plugin...\n", style.DimText("⟳"))
+	cmd := exec.Command("npm", "install", "--save", "@regent-vcs/opencode-plugin")
+	cmd.Dir = opencodeDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("npm install @regent-vcs/opencode-plugin: %w", err)
+	}
+	return nil
+}
+
+func registerOpenCodePlugin(projectRoot string) error {
+	configPath := findOpenCodeConfig(projectRoot)
+	if configPath == "" {
+		configPath = filepath.Join(projectRoot, "opencode.jsonc")
+	}
+
+	config := map[string]interface{}{}
+	if data, err := os.ReadFile(configPath); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+		cleaned := stripJSONComments(string(data))
+		if err := json.Unmarshal([]byte(cleaned), &config); err != nil {
+			config = map[string]interface{}{}
+		}
+	}
+
+	pluginRef := "@regent-vcs/opencode-plugin"
+	plugins, _ := config["plugin"].([]interface{})
+	for _, p := range plugins {
+		if s, ok := p.(string); ok && s == pluginRef {
+			return nil
+		}
+	}
+	config["plugin"] = append(plugins, pluginRef)
+
+	output, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal OpenCode config: %w", err)
+	}
+	return os.WriteFile(configPath, output, 0o644)
+}
+
+func findOpenCodeConfig(projectRoot string) string {
+	candidates := []string{
+		filepath.Join(projectRoot, "opencode.jsonc"),
+		filepath.Join(projectRoot, "opencode.json"),
+		filepath.Join(projectRoot, ".opencode.jsonc"),
+		filepath.Join(projectRoot, ".opencode.json"),
+	}
+	for _, path := range candidates {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
+func stripJSONComments(s string) string {
+	var result strings.Builder
+	i := 0
+	for i < len(s) {
+		if i+1 < len(s) && s[i] == '/' && s[i+1] == '/' {
+			for i < len(s) && s[i] != '\n' {
+				i++
+			}
+		} else if i+1 < len(s) && s[i] == '/' && s[i+1] == '*' {
+			i += 2
+			for i+1 < len(s) && !(s[i] == '*' && s[i+1] == '/') {
+				i++
+			}
+			if i+1 < len(s) {
+				i += 2
+			}
+		} else {
+			result.WriteByte(s[i])
+			i++
+		}
+	}
+	return result.String()
+}
+
 
 func enableCodexHooksFeature(config map[string]interface{}) {
 	features, _ := config["features"].(map[string]interface{})
@@ -437,6 +558,11 @@ func printManualInstructions(targets []agentTarget) {
 		fmt.Println("  Stop             -> rgt codex-hook")
 		fmt.Println()
 	}
+	if hasAgent(targets, agentOpenCode) {
+		fmt.Println("OpenCode: copy the re_gent plugin to .opencode/plugins/regent.ts")
+		fmt.Println("  The plugin bridges tool.execute.after and session.idle to rgt opencode-hook")
+		fmt.Println()
+	}
 }
 
 func createRegentGitignore(projectRoot string) error {
@@ -481,6 +607,11 @@ func offerSkillInstall(projectRoot string, targets []agentTarget, input *bufio.R
 				return err
 			}
 			fmt.Printf("  %s Codex skills installed in .agents/skills/\n", style.Success(""))
+		case agentOpenCode:
+			if err := installSkills(filepath.Join(projectRoot, ".opencode", "skills")); err != nil {
+				return err
+			}
+			fmt.Printf("  %s OpenCode skills installed in .opencode/skills/\n", style.Success(""))
 		}
 	}
 	fmt.Println()
@@ -555,8 +686,12 @@ func resolveAgentTargets(projectRoot string, target agentTarget) ([]agentTarget,
 		return []agentTarget{agentClaude}, nil
 	case agentCodex:
 		return []agentTarget{agentCodex}, nil
+	case agentOpenCode:
+		return []agentTarget{agentOpenCode}, nil
 	case agentBoth:
 		return []agentTarget{agentClaude, agentCodex}, nil
+	case agentAll:
+		return []agentTarget{agentClaude, agentCodex, agentOpenCode}, nil
 	case agentAuto, "":
 		var targets []agentTarget
 		if pathExists(filepath.Join(projectRoot, ".claude")) || commandExists("claude") {
@@ -565,12 +700,15 @@ func resolveAgentTargets(projectRoot string, target agentTarget) ([]agentTarget,
 		if pathExists(filepath.Join(projectRoot, ".codex")) || commandExists("codex") {
 			targets = append(targets, agentCodex)
 		}
+		if pathExists(filepath.Join(projectRoot, ".opencode")) || commandExists("opencode") {
+			targets = append(targets, agentOpenCode)
+		}
 		if len(targets) == 0 {
 			targets = append(targets, agentClaude, agentCodex)
 		}
 		return targets, nil
 	default:
-		return nil, fmt.Errorf("invalid --agent %q; expected auto, claude, codex, or both", target)
+		return nil, fmt.Errorf("invalid --agent %q; expected auto, claude, codex, opencode, all, or both", target)
 	}
 }
 
