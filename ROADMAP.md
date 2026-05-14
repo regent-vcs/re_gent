@@ -120,7 +120,7 @@ A production-ready version control system for AI agents that:
 **Goal**: Extend the shared capture adapter model beyond Claude Code and Codex.
 
 **Deliverables:**
-- [ ] Adapter architecture (common `Payload` interface)
+- [ ] Adapter architecture using the shared capture event model
 - [ ] Cursor adapter ([#20](https://github.com/regent-vcs/regent/issues/20))
   - Hook integration for Cursor's `.cursorrules`
   - Conversation extraction from Cursor's state
@@ -133,7 +133,7 @@ A production-ready version control system for AI agents that:
   - Python decorator: `@regent.track`
   - Automatic step creation on tool use
 - [ ] Tool detection (auto-detect which tool is running)
-- [ ] Origin tracking (`origin` field in session metadata)
+- [ ] Origin registry/mapping for additional adapters
 
 **Success Criteria:**
 - All four adapters capture activity to the same `.regent/`

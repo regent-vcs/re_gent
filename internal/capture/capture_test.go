@@ -625,6 +625,104 @@ func TestRecorder_AdoptsLegacyRawSessionID(t *testing.T) {
 	}
 }
 
+func TestRecorder_DivergentLegacyRawSessionIDIsNotMerged(t *testing.T) {
+	root := t.TempDir()
+	if _, err := store.Init(root); err != nil {
+		t.Fatalf("init store: %v", err)
+	}
+
+	recorder, ok, err := Open(root)
+	if err != nil {
+		t.Fatalf("open recorder: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected initialized recorder")
+	}
+	defer func() { _ = recorder.Close() }()
+
+	legacySessionID := "claude-legacy"
+	canonicalID := canonicalSessionID(OriginClaudeCode, legacySessionID)
+
+	legacyBlob, err := recorder.Store.WriteBlob([]byte("legacy\n"))
+	if err != nil {
+		t.Fatalf("write legacy blob: %v", err)
+	}
+	legacyTree := &store.Tree{Entries: []store.TreeEntry{{Path: "legacy.txt", Blob: legacyBlob}}}
+	legacyTreeHash, err := recorder.Store.WriteTree(legacyTree)
+	if err != nil {
+		t.Fatalf("write legacy tree: %v", err)
+	}
+	legacyStep := &store.Step{
+		Tree:           legacyTreeHash,
+		Cause:          store.Cause{ToolName: "Write", ToolUseID: "legacy-tool"},
+		SessionID:      legacySessionID,
+		TimestampNanos: 1,
+	}
+	legacyStepHash, err := recorder.Store.WriteStep(legacyStep)
+	if err != nil {
+		t.Fatalf("write legacy step: %v", err)
+	}
+	if err := recorder.Index.IndexStep(legacyStepHash, legacyStep, legacyTree); err != nil {
+		t.Fatalf("index legacy step: %v", err)
+	}
+	if err := recorder.Store.UpdateRef("sessions/"+legacySessionID, "", legacyStepHash); err != nil {
+		t.Fatalf("write legacy ref: %v", err)
+	}
+
+	canonicalBlob, err := recorder.Store.WriteBlob([]byte("canonical\n"))
+	if err != nil {
+		t.Fatalf("write canonical blob: %v", err)
+	}
+	canonicalTree := &store.Tree{Entries: []store.TreeEntry{{Path: "canonical.txt", Blob: canonicalBlob}}}
+	canonicalTreeHash, err := recorder.Store.WriteTree(canonicalTree)
+	if err != nil {
+		t.Fatalf("write canonical tree: %v", err)
+	}
+	canonicalStep := &store.Step{
+		Tree:           canonicalTreeHash,
+		Cause:          store.Cause{ToolName: "Write", ToolUseID: "canonical-tool"},
+		SessionID:      canonicalID,
+		Origin:         OriginClaudeCode,
+		TimestampNanos: 2,
+	}
+	canonicalStepHash, err := recorder.Store.WriteStep(canonicalStep)
+	if err != nil {
+		t.Fatalf("write canonical step: %v", err)
+	}
+	if err := recorder.Index.IndexStep(canonicalStepHash, canonicalStep, canonicalTree); err != nil {
+		t.Fatalf("index canonical step: %v", err)
+	}
+	if err := recorder.Store.UpdateRef("sessions/"+canonicalID, "", canonicalStepHash); err != nil {
+		t.Fatalf("write canonical ref: %v", err)
+	}
+
+	meta := SessionMetadata{SessionID: legacySessionID, Origin: OriginClaudeCode}
+	if err := recorder.RecordUserPrompt(UserPrompt{SessionMetadata: meta, Prompt: "continue"}); err != nil {
+		t.Fatalf("record prompt: %v", err)
+	}
+
+	canonicalSteps, err := recorder.Index.ListSteps(canonicalID, 10)
+	if err != nil {
+		t.Fatalf("list canonical steps: %v", err)
+	}
+	if len(canonicalSteps) != 1 || canonicalSteps[0].Hash != canonicalStepHash {
+		t.Fatalf("legacy rows merged into divergent canonical session: %#v", canonicalSteps)
+	}
+	legacySteps, err := recorder.Index.ListSteps(legacySessionID, 10)
+	if err != nil {
+		t.Fatalf("list legacy steps: %v", err)
+	}
+	if len(legacySteps) != 1 || legacySteps[0].Hash != legacyStepHash {
+		t.Fatalf("legacy rows not preserved separately: %#v", legacySteps)
+	}
+	if _, err := recorder.Store.ReadRef("legacy-sessions/" + legacySessionID); err != nil {
+		t.Fatalf("legacy ref was not archived: %v", err)
+	}
+	if _, err := recorder.Store.ReadRef("sessions/" + legacySessionID); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("legacy raw ref should be removed after archive, err=%v", err)
+	}
+}
+
 func TestRecordToolUse_SelfCommandsDoNotCreateToolCauses(t *testing.T) {
 	root := t.TempDir()
 	if _, err := store.Init(root); err != nil {
@@ -659,6 +757,69 @@ func TestRecordToolUse_SelfCommandsDoNotCreateToolCauses(t *testing.T) {
 	}
 	if len(pending) != 0 {
 		t.Fatalf("expected self-noise to be skipped, got %d messages", len(pending))
+	}
+}
+
+func TestExistingStepForTurnWalksSessionAncestry(t *testing.T) {
+	root := t.TempDir()
+	if _, err := store.Init(root); err != nil {
+		t.Fatalf("init store: %v", err)
+	}
+
+	recorder, ok, err := Open(root)
+	if err != nil {
+		t.Fatalf("open recorder: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected initialized recorder")
+	}
+	defer func() { _ = recorder.Close() }()
+
+	sessionID := canonicalSessionID(OriginCodexCLI, "codex-session")
+	blob, err := recorder.Store.WriteBlob([]byte("content\n"))
+	if err != nil {
+		t.Fatalf("write blob: %v", err)
+	}
+	tree := &store.Tree{Entries: []store.TreeEntry{{Path: "file.txt", Blob: blob}}}
+	treeHash, err := recorder.Store.WriteTree(tree)
+	if err != nil {
+		t.Fatalf("write tree: %v", err)
+	}
+	oldStep := &store.Step{
+		Tree:           treeHash,
+		Cause:          store.Cause{ToolName: "Write", ToolUseID: "tool-1"},
+		SessionID:      sessionID,
+		Origin:         OriginCodexCLI,
+		TurnID:         "turn-1",
+		TimestampNanos: 1,
+	}
+	oldHash, err := recorder.Store.WriteStep(oldStep)
+	if err != nil {
+		t.Fatalf("write old step: %v", err)
+	}
+	newStep := &store.Step{
+		Parent:         oldHash,
+		Tree:           treeHash,
+		Cause:          store.Cause{ToolName: "Write", ToolUseID: "tool-2"},
+		SessionID:      sessionID,
+		Origin:         OriginCodexCLI,
+		TurnID:         "turn-2",
+		TimestampNanos: 2,
+	}
+	newHash, err := recorder.Store.WriteStep(newStep)
+	if err != nil {
+		t.Fatalf("write new step: %v", err)
+	}
+	if err := recorder.Store.UpdateRef("sessions/"+sessionID, "", newHash); err != nil {
+		t.Fatalf("write session ref: %v", err)
+	}
+
+	stepHash, ok, err := recorder.existingStepForTurn(sessionID, "turn-1")
+	if err != nil {
+		t.Fatalf("find existing step: %v", err)
+	}
+	if !ok || stepHash != oldHash {
+		t.Fatalf("existing step = %s ok=%v, want %s", stepHash, ok, oldHash)
 	}
 }
 

@@ -292,9 +292,13 @@ func (r *Recorder) adoptLegacySession(session SessionMetadata) error {
 	if session.externalID == "" || session.externalID == session.SessionID {
 		return nil
 	}
+	if !isSafeLegacyRefName(session.externalID) {
+		return r.adoptLegacySessionIndex(session)
+	}
 
 	legacyHead, err := r.Store.ReadRef("sessions/" + session.externalID)
 	legacyRefExists := err == nil
+	mergeLegacyIndex := !legacyRefExists
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("read legacy session ref: %w", err)
@@ -305,16 +309,28 @@ func (r *Recorder) adoptLegacySession(session SessionMetadata) error {
 		canonicalHead, err := r.Store.ReadRef("sessions/" + session.SessionID)
 		switch {
 		case err == nil:
-			if canonicalHead != legacyHead {
-				logHookError(r.Store, fmt.Sprintf("archiving divergent legacy session ref %s -> %s", session.externalID, session.SessionID))
-				if archiveErr := r.archiveLegacySessionRef(session.externalID, legacyHead); archiveErr != nil {
-					return archiveErr
+			if canonicalHead == legacyHead {
+				mergeLegacyIndex = true
+			} else {
+				isAncestor, err := r.stepIsAncestor(legacyHead, canonicalHead)
+				if err != nil {
+					return fmt.Errorf("check legacy session ancestry: %w", err)
+				}
+				if isAncestor {
+					mergeLegacyIndex = true
+				} else {
+					mergeLegacyIndex = false
+					logHookError(r.Store, fmt.Sprintf("archiving divergent legacy session ref %s -> %s", session.externalID, session.SessionID))
+					if archiveErr := r.archiveLegacySessionRef(session.externalID, legacyHead); archiveErr != nil {
+						return archiveErr
+					}
 				}
 			}
 		case errors.Is(err, fs.ErrNotExist):
 			if err := r.Store.UpdateRef("sessions/"+session.SessionID, "", legacyHead); err != nil && !errors.Is(err, store.ErrRefConflict) {
 				return fmt.Errorf("write canonical session ref: %w", err)
 			}
+			mergeLegacyIndex = true
 			logDebug(r.Store, fmt.Sprintf("adopted legacy session ref %s -> %s", session.externalID, session.SessionID))
 		default:
 			return fmt.Errorf("read canonical session ref: %w", err)
@@ -325,6 +341,14 @@ func (r *Recorder) adoptLegacySession(session SessionMetadata) error {
 		}
 	}
 
+	if !mergeLegacyIndex {
+		logDebug(r.Store, fmt.Sprintf("preserved divergent legacy session index %s separate from %s", session.externalID, session.SessionID))
+		return nil
+	}
+	return r.adoptLegacySessionIndex(session)
+}
+
+func (r *Recorder) adoptLegacySessionIndex(session SessionMetadata) error {
 	changed, err := r.Index.RenameSession(session.externalID, session.SessionID, session.Origin)
 	if err != nil {
 		return fmt.Errorf("adopt legacy session index: %w", err)
@@ -333,6 +357,24 @@ func (r *Recorder) adoptLegacySession(session SessionMetadata) error {
 		logDebug(r.Store, fmt.Sprintf("adopted legacy session index %s -> %s", session.externalID, session.SessionID))
 	}
 	return nil
+}
+
+func isSafeLegacyRefName(name string) bool {
+	return name != "" && !strings.Contains(name, "/") && !strings.Contains(name, "\\") && name != "." && name != ".."
+}
+
+func (r *Recorder) stepIsAncestor(ancestor, descendant store.Hash) (bool, error) {
+	for descendant != "" {
+		if descendant == ancestor {
+			return true, nil
+		}
+		step, err := r.Store.ReadStep(descendant)
+		if err != nil {
+			return false, err
+		}
+		descendant = step.Parent
+	}
+	return false, nil
 }
 
 func (r *Recorder) archiveLegacySessionRef(externalID string, head store.Hash) error {
@@ -441,12 +483,15 @@ func (r *Recorder) existingStepForTurn(sessionID, turnID string) (store.Hash, bo
 		return "", false, fmt.Errorf("read session ref: %w", err)
 	}
 
-	headStep, err := r.Store.ReadStep(headHash)
-	if err != nil {
-		return "", false, fmt.Errorf("read head step: %w", err)
-	}
-	if headStep.SessionID == sessionID && headStep.TurnID == turnID {
-		return headHash, true, nil
+	for current := headHash; current != ""; {
+		step, err := r.Store.ReadStep(current)
+		if err != nil {
+			return "", false, fmt.Errorf("read ancestor step %s: %w", current, err)
+		}
+		if step.SessionID == sessionID && step.TurnID == turnID {
+			return current, true, nil
+		}
+		current = step.Parent
 	}
 	return "", false, nil
 }

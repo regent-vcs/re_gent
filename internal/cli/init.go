@@ -291,7 +291,7 @@ func enableCodexHooksFeature(config map[string]interface{}) {
 		features = map[string]interface{}{}
 		config["features"] = features
 	}
-	features["codex_hooks"] = true
+	features["hooks"] = true
 }
 
 func mergeHookCommand(hooks map[string]interface{}, eventName, command string) {

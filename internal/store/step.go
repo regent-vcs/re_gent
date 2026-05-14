@@ -55,7 +55,7 @@ func (step *Step) NormalizeCauses() {
 	if len(step.Causes) == 0 && step.Cause.ToolName != "" {
 		step.Causes = []Cause{step.Cause}
 	}
-	if step.Cause.ToolName == "" && len(step.Causes) > 0 {
+	if len(step.Causes) > 0 {
 		step.Cause = step.Causes[0]
 	}
 }

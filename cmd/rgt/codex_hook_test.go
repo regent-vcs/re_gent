@@ -87,7 +87,7 @@ func TestRunCodexHook_NoStoreIsNoop(t *testing.T) {
 
 func TestRunCodexHook_InvalidPayloadNoStoreIsNoop(t *testing.T) {
 	root := t.TempDir()
-	t.Chdir(root)
+	chdir(t, root)
 
 	runCodexPayload(t, `{not-json`)
 
@@ -98,7 +98,7 @@ func TestRunCodexHook_InvalidPayloadNoStoreIsNoop(t *testing.T) {
 
 func TestRunCodexHook_InvalidPayloadLogsWhenStoreExists(t *testing.T) {
 	root := t.TempDir()
-	t.Chdir(root)
+	chdir(t, root)
 	if _, err := store.Init(root); err != nil {
 		t.Fatalf("init store: %v", err)
 	}
@@ -223,4 +223,21 @@ func runWithStdin(t *testing.T, payload string, fn func() error) {
 	if err := fn(); err != nil {
 		t.Fatalf("hook returned error: %v", err)
 	}
+}
+
+func chdir(t *testing.T, dir string) {
+	t.Helper()
+
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("change working directory: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldDir); err != nil {
+			t.Fatalf("restore working directory: %v", err)
+		}
+	})
 }

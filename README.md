@@ -170,19 +170,14 @@ re_gent stores agent activity in `.regent/` (like `.git/`):
 └── config.toml
 ```
 
-Every tool call creates a **Step**:
+Every tool-using turn creates a **Step**; each tool call in that turn is recorded as a cause/message:
 
 ```go
 Step {
   parent:      <previous-step-hash>
   tree:        <workspace-snapshot>
-  transcript:  <conversation-delta>
-  cause: {
-    tool_name: "Edit"
-    args:      <what-changed>
-    result:    <tool-output>
-  }
-  session_id:  "claude-20260502-143021"
+  causes:      [{ tool_name: "Edit", args: <input>, result: <output> }]
+  session_id:  "claude_code:claude-20260502-143021"
   timestamp:   "2026-05-02T14:30:21Z"
 }
 ```
@@ -286,7 +281,7 @@ npm install && npm run compile
 | Command | Description |
 |---------|-------------|
 | `rgt init` | Initialize `.regent/` in current directory |
-| `rgt log` | Show step history (supports `--session`, `-n`, `--since`) |
+| `rgt log` | Show step history (supports `--session`, `-n`, `--json`, `--graph`) |
 | `rgt sessions` | List all active sessions |
 | `rgt status` | Show current repository state |
 | `rgt show <step>` | Display full context for a step (tool call + conversation) |
@@ -309,7 +304,7 @@ npm install && npm run compile
 
 - **Content-Addressed Storage** — BLAKE3 hashing, automatic deduplication
 - **Fast Queries** — SQLite index, sub-10ms lookups
-- **Per-Session DAG** — Concurrent agents, no conflicts
+- **Per-Session DAG** — Concurrent sessions tracked as separate refs
 - **Conversation Tracking** — Survives `/compact` and `/clear`
 - **Hook-Driven** — Transparent Claude Code and Codex integration
 - **Concurrency-Safe** — CAS refs, ACID transactions
@@ -325,7 +320,7 @@ npm install && npm run compile
 | **Tracks agent activity** | ❌ | ✅ |
 | **Blame with prompt** | ❌ | ✅ |
 | **Conversation history** | ❌ | ✅ |
-| **Concurrent sessions** | ⚠️ conflicts | ✅ separate branches |
+| **Concurrent sessions** | ⚠️ shared workspace conflicts | ✅ separate captured session refs |
 | **Purpose** | Developer VCS | Agent audit trail |
 
 **re_gent complements git, doesn't replace it.** Use both.

@@ -123,8 +123,11 @@ func (s *Store) UpdateRefWithRetry(name string, expectedOld, newHash Hash, maxAt
 			backoff = 100 * time.Millisecond
 		}
 
-		// Re-read current value for next attempt
-		expectedOld, _ = s.ReadRef(name) // Ignore error on retry
+		current, readErr := s.ReadRef(name)
+		if readErr != nil {
+			return fmt.Errorf("read ref %s after conflict: %w", name, readErr)
+		}
+		expectedOld = current
 	}
 	return ErrRefConflict
 }

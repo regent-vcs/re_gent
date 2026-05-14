@@ -102,8 +102,9 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 		return logError(s, fmt.Errorf("update ref: %w", err))
 	}
 
-	// 14. Index the step (best effort - derived index)
-	// If indexing fails, refs/objects remain the source of truth.
+	// 14. Index the step (best effort for this legacy hook path).
+	// If indexing fails, recorded workspace state remains recoverable from refs/objects,
+	// but CLI visibility still depends on index repair.
 	if err := idx.IndexStep(stepHash, stepWithoutTree, tree); err != nil {
 		// Log error but don't fail hook - refs/objects are source of truth
 		_ = logError(s, fmt.Errorf("index step (non-fatal): %w", err))

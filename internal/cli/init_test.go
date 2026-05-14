@@ -41,8 +41,8 @@ func TestInstallCodexHook_MergesProjectConfig(t *testing.T) {
 	if !ok {
 		t.Fatalf("features missing: %#v", config["features"])
 	}
-	if features["codex_hooks"] != true {
-		t.Fatalf("codex_hooks feature not enabled: %#v", features["codex_hooks"])
+	if features["hooks"] != true {
+		t.Fatalf("hooks feature not enabled: %#v", features["hooks"])
 	}
 
 	hooks, ok := config["hooks"].(map[string]interface{})
@@ -87,8 +87,8 @@ web_search = true
 	if features["web_search"] != true {
 		t.Fatalf("existing feature was not preserved: %#v", features)
 	}
-	if features["codex_hooks"] != true {
-		t.Fatalf("codex_hooks feature not enabled: %#v", features)
+	if features["hooks"] != true {
+		t.Fatalf("hooks feature not enabled: %#v", features)
 	}
 }
 

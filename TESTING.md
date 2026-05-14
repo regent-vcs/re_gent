@@ -30,7 +30,7 @@ Expected results:
 - `.regent/` exists.
 - `.claude/settings.json` contains `UserPromptSubmit`, `Stop`, and `PostToolBatch`.
 - `.codex/config.toml` contains `SessionStart`, `UserPromptSubmit`, `PostToolUse`, and `Stop`.
-- `.codex/config.toml` has `[features] codex_hooks = true`.
+- `.codex/config.toml` has `[features] hooks = true`.
 - `rgt sessions` reports no sessions until an agent hook fires.
 
 Codex may ask you to trust the project and hook commands the first time it loads the project-local config.

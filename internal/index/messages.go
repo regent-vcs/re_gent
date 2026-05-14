@@ -119,6 +119,9 @@ func (idx *DB) appendToolUseMessagesOnce(call, result Message) (bool, error) {
 		return false, fmt.Errorf("insert tool use guard: %w", err)
 	}
 	if !rowsChanged(guard) {
+		if err := validateExistingToolUseMessages(tx, call, result); err != nil {
+			return false, err
+		}
 		return false, nil
 	}
 
@@ -140,6 +143,60 @@ func (idx *DB) appendToolUseMessagesOnce(call, result Message) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+func validateExistingToolUseMessages(tx *sql.Tx, call, result Message) error {
+	rows, err := tx.Query(`
+		SELECT message_type, COALESCE(tool_name, ''), COALESCE(tool_input, ''), COALESCE(tool_output, '')
+		FROM messages
+		WHERE session_id = ?
+		  AND turn_id = ?
+		  AND tool_use_id = ?
+		  AND message_type IN ('tool_call', 'tool_result')
+		ORDER BY seq_num ASC
+	`, call.SessionID, call.TurnID, call.ToolUseID)
+	if err != nil {
+		return fmt.Errorf("read existing tool use messages: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var foundCall, foundResult bool
+	for rows.Next() {
+		var messageType, toolName, toolInput, toolOutput string
+		if err := rows.Scan(&messageType, &toolName, &toolInput, &toolOutput); err != nil {
+			return fmt.Errorf("scan existing tool use message: %w", err)
+		}
+
+		switch messageType {
+		case "tool_call":
+			if foundCall {
+				return duplicateToolUseError(call, "multiple existing tool_call messages")
+			}
+			foundCall = true
+			if toolName != call.ToolName || toolInput != call.ToolInput {
+				return duplicateToolUseError(call, "existing tool_call payload differs")
+			}
+		case "tool_result":
+			if foundResult {
+				return duplicateToolUseError(call, "multiple existing tool_result messages")
+			}
+			foundResult = true
+			if toolName != result.ToolName || toolOutput != result.ToolOutput {
+				return duplicateToolUseError(call, "existing tool_result payload differs")
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read existing tool use messages: %w", err)
+	}
+	if !foundCall || !foundResult {
+		return duplicateToolUseError(call, "existing tool use is incomplete")
+	}
+	return nil
+}
+
+func duplicateToolUseError(msg Message, reason string) error {
+	return fmt.Errorf("duplicate tool use %q for session %q turn %q conflicts: %s", msg.ToolUseID, msg.SessionID, msg.TurnID, reason)
 }
 
 func isSQLiteBusy(err error) bool {
