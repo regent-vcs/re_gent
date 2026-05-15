@@ -244,6 +244,30 @@ sudo mv rgt /usr/local/bin/
 
 For shell completion, follow the "Via Go Install" instructions above.
 
+### Windows Local Dev Environment
+
+If you are building from source on Windows, this repository now includes a helper script that wires up Go and a C compiler for the current PowerShell session.
+
+```powershell
+. .\scripts\dev-env.ps1
+go version
+gcc --version
+go test ./...
+go build -o .\bin\rgt.exe .\cmd\rgt
+```
+
+The script currently looks for:
+
+- Go in `C:\Program Files\Go` or `C:\Go`
+- MinGW in `C:\ProgramData\mingw64\mingw64`, `C:\msys64\ucrt64`, or `C:\msys64\mingw64`
+- falls back to `cl.exe` if a usable GCC toolchain is not present on `PATH`
+
+If you only need the resolved environment values, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\dev-env.ps1 -PrintOnly
+```
+
 ### Binary Releases
 
 Download pre-built binaries from [GitHub Releases](https://github.com/regent-vcs/regent/releases)

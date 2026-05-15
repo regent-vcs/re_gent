@@ -98,6 +98,14 @@ On Windows:
 rgt codex import --project C:\work\repo --codex-home $env:USERPROFILE\.codex
 ```
 
+If you are building `rgt` from source locally on Windows before using the Codex adapter, load the repo's PowerShell dev environment first:
+
+```powershell
+. .\scripts\dev-env.ps1
+go build -o .\bin\rgt.exe .\cmd\rgt
+.\bin\rgt.exe codex import --project C:\work\repo --codex-home $env:USERPROFILE\.codex
+```
+
 ### Live Watch Mode
 
 ```bash
@@ -265,3 +273,4 @@ For command-level behavior, also see:
 
 - `README.md`
 - `docs/FAQ.md`
+- `scripts/dev-env.ps1`
