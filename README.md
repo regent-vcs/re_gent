@@ -55,9 +55,7 @@ That's it. Your agent activity is now auditable.
 ## Demo
 
 <div align="center">
-  <video src="https://github.com/regent-vcs/re_gent/releases/download/v1.0.0/demo.mp4" controls muted autoplay loop width="100%">
-    <img src="assets/demo-fast.gif" alt="re_gent tracking AI agent activity" width="100%"/>
-  </video>
+  <img src="assets/demo-fast.gif" alt="re_gent tracking AI agent activity" width="100%"/>
   <p><em>Every agent turn is automatically captured. No manual commits needed.</em></p>
 </div>
 
