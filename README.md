@@ -55,7 +55,11 @@ That's it. Your agent activity is now auditable.
 ## Demo
 
 <div align="center">
-  <img src="assets/demo-fast.gif" alt="re_gent tracking AI agent activity" width="100%"/>
+ 
+
+https://github.com/user-attachments/assets/a19b7c56-2e3c-4f04-81a1-d8665e3963b8
+
+
   <p><em>Every agent turn is automatically captured. No manual commits needed.</em></p>
 </div>
 
