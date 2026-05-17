@@ -17,7 +17,7 @@ type Store struct {
 // Open opens an existing .regent store
 func Open(regentDir string) (*Store, error) {
 	if _, err := os.Stat(regentDir); os.IsNotExist(err) {
-		return nil, fmt.Errorf("regent store not found at %s (run 'rgt init')", regentDir)
+		return nil, fmt.Errorf("%w", ErrNotRegentRepository)
 	}
 
 	s := &Store{Root: regentDir}

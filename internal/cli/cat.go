@@ -3,8 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/regent-vcs/regent/internal/store"
 	"github.com/spf13/cobra"
@@ -23,13 +21,7 @@ func CatCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hash := store.Hash(args[0])
 
-			cwd, err := os.Getwd()
-			if err != nil {
-				return err
-			}
-
-			regentDir := filepath.Join(cwd, ".regent")
-			s, err := store.Open(regentDir)
+			s, err := openStoreFromCWD()
 			if err != nil {
 				return err
 			}

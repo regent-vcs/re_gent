@@ -3,8 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/regent-vcs/regent/internal/index"
@@ -20,12 +18,7 @@ func ShowCmd() *cobra.Command {
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, err := os.Getwd()
-			if err != nil {
-				return err
-			}
-
-			s, err := store.Open(filepath.Join(cwd, ".regent"))
+			s, err := openStoreFromCWD()
 			if err != nil {
 				return err
 			}
