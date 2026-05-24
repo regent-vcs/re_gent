@@ -1,11 +1,5 @@
 <div align="center">
 
-  <a href="https://www.producthunt.com/products/re_gent"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=re_gent&theme=light" alt="re_gent on Product Hunt" width="250" height="54" /></a>
-
-  <h3>🚀 We're live on Product Hunt today! Your upvote means the world to us → <a href="https://www.producthunt.com/products/re_gent">Support re_gent</a></h3>
-
-  <br />
-
   <a href="https://github.com/regent-vcs/regent">
     <img
       src="assets/regent-logo-dark.png"
