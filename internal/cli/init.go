@@ -36,7 +36,7 @@ const (
 	claudeAssistantHook = "rgt message-hook assistant"
 	claudeToolBatchHook = "rgt tool-batch-hook"
 	codexHookCommand    = "rgt codex-hook"
-	piPackageSource     = "git:github.com/MegaGrindStone/regent-pi-extension"
+	piPackageSource     = "npm:@regent-vcs/pi-extension"
 	piInstallCommand    = "pi install -l " + piPackageSource
 )
 
@@ -406,7 +406,7 @@ func installPiHook(projectRoot string) bool {
 		return false
 	}
 
-	fmt.Printf("  %s Installing regent-pi-extension...\n", style.DimText("⟳"))
+	fmt.Printf("  %s Installing @regent-vcs/pi-extension...\n", style.DimText("⟳"))
 	cmd := exec.Command("pi", "install", "-l", piPackageSource)
 	cmd.Dir = projectRoot
 	cmd.Stdout = os.Stdout
@@ -436,7 +436,7 @@ func piPackageConfigured(projectRoot string) bool {
 		return false
 	}
 
-	const packageName = "regent-pi-extension"
+	const packageName = "@regent-vcs/pi-extension"
 	switch packages := settings["packages"].(type) {
 	case string:
 		return strings.Contains(packages, packageName)
