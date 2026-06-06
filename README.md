@@ -66,6 +66,12 @@ https://github.com/user-attachments/assets/a19b7c56-2e3c-4f04-81a1-d8665e3963b8
 
 ---
 
+## Examples
+
+- [Debugging a Bad Refactor](examples/bad-refactor/) - trace a realistic billing regression with `rgt log`, `rgt blame`, and `rgt show`.
+
+---
+
 ## What You Get
 
 ### See what your agent actually did
