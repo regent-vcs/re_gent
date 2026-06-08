@@ -83,3 +83,150 @@ func TestEnrichSteps_ReportsMissingToolBlobWarning(t *testing.T) {
 		t.Fatalf("expected missing args blob warning, got %#v", enriched[0].Warnings)
 	}
 }
+
+// ---- extractFilesFromToolArgs tests ----
+
+func TestExtractFilesFromToolArgs_Write(t *testing.T) {
+	args := json.RawMessage(`{"file_path": "src/main.go"}`)
+	files := extractFilesFromToolArgs("Write", args)
+	if len(files) != 1 || files[0] != "src/main.go" {
+		t.Errorf("extractFilesFromToolArgs(Write) = %v, want [src/main.go]", files)
+	}
+}
+
+func TestExtractFilesFromToolArgs_Edit(t *testing.T) {
+	args := json.RawMessage(`{"file_path": "/absolute/path/file.go"}`)
+	files := extractFilesFromToolArgs("Edit", args)
+	if len(files) != 1 {
+		t.Errorf("expected 1 file, got %d: %v", len(files), files)
+	}
+}
+
+func TestExtractFilesFromToolArgs_Read(t *testing.T) {
+	args := json.RawMessage(`{"file_path": "README.md"}`)
+	files := extractFilesFromToolArgs("Read", args)
+	if len(files) != 1 || files[0] != "README.md" {
+		t.Errorf("extractFilesFromToolArgs(Read) = %v, want [README.md]", files)
+	}
+}
+
+func TestExtractFilesFromToolArgs_Bash(t *testing.T) {
+	args := json.RawMessage(`{"command": "rm -rf /tmp"}`)
+	files := extractFilesFromToolArgs("Bash", args)
+	if len(files) != 0 {
+		t.Errorf("extractFilesFromToolArgs(Bash) should return empty, got %v", files)
+	}
+}
+
+func TestExtractFilesFromToolArgs_Unknown(t *testing.T) {
+	args := json.RawMessage(`{"file_path": "a.txt", "path": "b.txt", "filename": "c.txt"}`)
+	files := extractFilesFromToolArgs("UnknownTool", args)
+	if len(files) != 3 {
+		t.Errorf("extractFilesFromToolArgs(UnknownTool) = %v, want 3 files", files)
+	}
+}
+
+func TestExtractFilesFromToolArgs_EmptyArgs(t *testing.T) {
+	files := extractFilesFromToolArgs("Write", json.RawMessage{})
+	if len(files) != 0 {
+		t.Errorf("empty args should return empty, got %v", files)
+	}
+}
+
+func TestExtractFilesFromToolArgs_NullArgs(t *testing.T) {
+	files := extractFilesFromToolArgs("Write", json.RawMessage("null"))
+	if len(files) != 0 {
+		t.Errorf("null args should return empty, got %v", files)
+	}
+}
+
+func TestExtractFilesFromToolArgs_InvalidJSON(t *testing.T) {
+	files := extractFilesFromToolArgs("Write", json.RawMessage("not json"))
+	if len(files) != 0 {
+		t.Errorf("invalid JSON args should return empty, got %v", files)
+	}
+}
+
+func TestExtractFilesFromToolArgs_WildcardPaths(t *testing.T) {
+	args := json.RawMessage(`{"files": ["a.go", "b.go", "c.go"]}`)
+	files := extractFilesFromToolArgs("Glob", args)
+	if len(files) != 3 {
+		t.Errorf("extractFilesFromToolArgs(Glob) = %v, want 3 files", files)
+	}
+}
+
+// ---- extractPathFields tests ----
+
+func TestExtractPathFields_AllKeys(t *testing.T) {
+	argsMap := map[string]interface{}{
+		"file_path": "/foo/bar.go",
+		"path":      "baz.go",
+		"filename":  "qux.go",
+	}
+	files := extractPathFields(argsMap)
+	if len(files) != 3 {
+		t.Errorf("expected 3 files, got %d: %v", len(files), files)
+	}
+}
+
+func TestExtractPathFields_FilesSlice(t *testing.T) {
+	argsMap := map[string]interface{}{
+		"files": []interface{}{"a.go", "b.go"},
+	}
+	files := extractPathFields(argsMap)
+	if len(files) != 2 {
+		t.Errorf("expected 2 files, got %d: %v", len(files), files)
+	}
+}
+
+func TestExtractPathFields_NoPaths(t *testing.T) {
+	argsMap := map[string]interface{}{
+		"command": "ls",
+		"key":     "value",
+	}
+	files := extractPathFields(argsMap)
+	if len(files) != 0 {
+		t.Errorf("expected 0 files, got %d: %v", len(files), files)
+	}
+}
+
+func TestExtractPathFields_EmptyStrings(t *testing.T) {
+	argsMap := map[string]interface{}{
+		"file_path": "",
+		"path":      "",
+	}
+	files := extractPathFields(argsMap)
+	if len(files) != 0 {
+		t.Errorf("empty path strings should be skipped, got %v", files)
+	}
+}
+
+// ---- makeRelativePath tests ----
+
+func TestMakeRelativePath_AlreadyRelative(t *testing.T) {
+	got := makeRelativePath("src/main.go")
+	if got != "src/main.go" {
+		t.Errorf("makeRelativePath() = %q, want %q", got, "src/main.go")
+	}
+}
+
+func TestMakeRelativePath_Empty(t *testing.T) {
+	got := makeRelativePath("")
+	if got != "" {
+		t.Errorf("makeRelativePath() = %q, want empty", got)
+	}
+}
+
+func TestMakeRelativePath_UnderCwd(t *testing.T) {
+	got := makeRelativePath("/some/absolute/path")
+	if got == "" {
+		t.Errorf("makeRelativePath() returned empty for absolute path")
+	}
+}
+
+func TestMakeRelativePath_WindowsStyle(t *testing.T) {
+	got := makeRelativePath(`C:\Users\test\file.go`)
+	if !strings.Contains(got, "file.go") {
+		t.Errorf("makeRelativePath() = %q", got)
+	}
+}
