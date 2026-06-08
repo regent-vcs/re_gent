@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/regent-vcs/regent/internal/index"
-	"github.com/regent-vcs/regent/internal/store"
 	"github.com/regent-vcs/regent/internal/style"
 	"github.com/spf13/cobra"
 )

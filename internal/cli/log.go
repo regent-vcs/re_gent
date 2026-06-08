@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/regent-vcs/regent/internal/index"
-	"github.com/regent-vcs/regent/internal/store"
 	"github.com/spf13/cobra"
 )
 

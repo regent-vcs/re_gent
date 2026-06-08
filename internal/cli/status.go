@@ -38,7 +38,7 @@ func StatusCmd() *cobra.Command {
 				return nil
 			}
 
-			fmt.Printf("%s %s %s\n", style.Brand("re_gent"), style.Label("repository:"), regentDir)
+			fmt.Printf("%s %s %s\n", style.Brand("re_gent"), style.Label("repository:"), s.Root)
 			fmt.Printf("%s %d\n\n", style.Label("Sessions:"), len(sessions))
 
 			for _, sess := range sessions {
