@@ -29,26 +29,40 @@ func Snapshot(s *store.Store, root string, ig *ignore.Matcher) (store.Hash, erro
 			return nil
 		}
 
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+
+		isDir := info.IsDir()
+
+		// On Windows, Lstat may not report ModeDir for junctions/reparse
+		// points, so info.IsDir() can return false. Use os.Stat (which
+		// follows links) as fallback to reliably detect directories.
+		if !isDir {
+			if statInfo, statErr := os.Stat(p); statErr == nil {
+				if statInfo.IsDir() {
+					isDir = true
+				} else if info.Mode()&os.ModeSymlink != 0 {
+					info = statInfo
+				}
+			} else if !info.Mode().IsRegular() {
+				// os.Stat failed on a non-regular entry (broken symlink,
+				// dangling junction, etc.). Skip to avoid ReadFile errors.
+				return nil
+			}
+		}
+
 		// Check ignore patterns
-		if ig.Match(rel, d.IsDir()) {
-			if d.IsDir() {
+		if ig.Match(rel, isDir) {
+			if isDir {
 				return fs.SkipDir
 			}
 			return nil
 		}
 
 		// Skip directories (we only track files)
-		if d.IsDir() {
-			return nil
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-
-		// Skip symlinks for v0 (simplifies semantics)
-		if info.Mode()&os.ModeSymlink != 0 {
+		if isDir {
 			return nil
 		}
 
@@ -57,7 +71,7 @@ func Snapshot(s *store.Store, root string, ig *ignore.Matcher) (store.Hash, erro
 			return nil
 		}
 
-		// Read file content
+		// Read file content (os.ReadFile follows symlinks automatically)
 		content, err := os.ReadFile(p)
 		if err != nil {
 			return err
