@@ -37,10 +37,20 @@ func (s *Store) WriteBlob(content []byte) (Hash, error) {
 	return Hash(hashStr), nil
 }
 
-// ReadBlob reads a blob from the object store by hash
+// ReadBlob reads a blob from the object store by hash.
+// Supports both full 64-char hashes and short hash prefixes.
 func (s *Store) ReadBlob(h Hash) ([]byte, error) {
 	if len(h) < 2 {
 		return nil, fmt.Errorf("invalid hash: too short")
+	}
+
+	// Resolve short hash prefix to full hash
+	if len(h) < 64 {
+		resolved, err := s.ResolveShortHash(string(h))
+		if err != nil {
+			return nil, err
+		}
+		h = resolved
 	}
 
 	objPath := filepath.Join(s.Root, "objects", string(h[:2]), string(h))
