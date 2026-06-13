@@ -10,10 +10,13 @@ import (
 
 func main() {
 	rootCmd := &cobra.Command{
-		Use:   "rgt",
-		Short: "re_gent - version control for AI agent activity",
-		Long:  "re_gent is a content-addressed version control system for AI agent activity.\nIt captures what an agent did, why, and lets you blame, log, and inspect steps across sessions.",
+		Use:     "rgt",
+		Short:   "re_gent - version control for AI agent activity",
+		Long:    "re_gent is a content-addressed version control system for AI agent activity.\nIt captures what an agent did, why, and lets you blame, log, and inspect steps across sessions.",
+		Version: cli.Version,
 	}
+	// Make `rgt --version` print the same line as `rgt version`.
+	rootCmd.SetVersionTemplate(cli.VersionString() + "\n")
 
 	// Add commands in desired help order (init first, then common commands)
 	rootCmd.AddCommand(cli.InitCmd())
