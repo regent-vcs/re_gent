@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -14,6 +15,45 @@ import (
 	"github.com/regent-vcs/regent/internal/snapshot"
 	"github.com/regent-vcs/regent/internal/store"
 )
+
+// gitCommitSHAPattern captures the abbreviated SHA git prints on the commit line. The
+// branch portion varies and can contain spaces, so it is matched loosely: a normal commit
+// is "[main c4e2117]", a first commit is "[master (root-commit) 24832e2]", a detached head
+// is "[detached HEAD c4e2117]". [^\]]* stays inside the first bracket group, and the
+// leftmost match wins, so a later "[... abc1234]" in the commit message body cannot be
+// mistaken for the SHA.
+var gitCommitSHAPattern = regexp.MustCompile(`\[[^\]]* ([0-9a-f]{7,40})\]`)
+
+// gitCommitEffect returns a git_commit Effect if the bash call was a git commit and the
+// response contains a SHA, otherwise returns nil. The SHA is the join key for LLMTrace's
+// /api/attribution endpoint, linking agent-authored commits to their runtime cost impact.
+func gitCommitEffect(toolName string, toolInput, toolResponse json.RawMessage) *store.Effect {
+	if toolName != "Bash" {
+		return nil
+	}
+	var args struct {
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal(toolInput, &args); err != nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(args.Command)
+	if !strings.Contains(trimmed, "git commit") {
+		return nil
+	}
+	var resp struct {
+		Output string `json:"output"`
+	}
+	// tool response may be plain text or JSON with an "output" field
+	if err := json.Unmarshal(toolResponse, &resp); err != nil {
+		resp.Output = string(toolResponse)
+	}
+	m := gitCommitSHAPattern.FindStringSubmatch(resp.Output)
+	if len(m) < 2 {
+		return nil
+	}
+	return &store.Effect{Kind: "git_commit", Descriptor: m[1]}
+}
 
 // Run is the main hook entry point, invoked by Claude Code after each tool use.
 // It reads a Payload from stdin, captures workspace state, and creates a step.
@@ -69,7 +109,7 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 	// Old blame-in-tree approach disabled
 
 	// 9. Build step object
-	stepWithoutTree := &store.Step{
+	step := &store.Step{
 		Parent:         parentHash,
 		Tree:           treeHash,
 		SessionID:      p.SessionID,
@@ -81,9 +121,12 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 			ResultBlob: resultHash,
 		},
 	}
+	if effect := gitCommitEffect(p.ToolName, p.ToolInput, p.ToolResponse); effect != nil {
+		step.Effects = append(step.Effects, *effect)
+	}
 
 	// 10. Write step
-	stepHash, err := s.WriteStep(stepWithoutTree)
+	stepHash, err := s.WriteStep(step)
 	if err != nil {
 		return logError(s, fmt.Errorf("write step: %w", err))
 	}
@@ -105,7 +148,7 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 	// 14. Index the step (best effort for this legacy hook path).
 	// If indexing fails, recorded workspace state remains recoverable from refs/objects,
 	// but CLI visibility still depends on index repair.
-	if err := idx.IndexStep(stepHash, stepWithoutTree, tree); err != nil {
+	if err := idx.IndexStep(stepHash, step, tree); err != nil {
 		// Log error but don't fail hook - refs/objects are source of truth
 		_ = logError(s, fmt.Errorf("index step (non-fatal): %w", err))
 		// Continue - refs are updated, that's what matters
