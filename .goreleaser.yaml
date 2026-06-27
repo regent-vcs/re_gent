@@ -27,9 +27,9 @@ builds:
       - CGO_ENABLED=0
     ldflags:
       - -s -w
-      - -X main.version={{.Version}}
-      - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
+      - -X github.com/regent-vcs/regent/internal/cli.Version={{.Version}}
+      - -X github.com/regent-vcs/regent/internal/cli.Commit={{.Commit}}
+      - -X github.com/regent-vcs/regent/internal/cli.Date={{.Date}}
 
 archives:
   - formats: [tar.gz]
