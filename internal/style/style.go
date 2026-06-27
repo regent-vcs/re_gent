@@ -7,9 +7,10 @@ import (
 
 // ANSI escape codes
 const (
-	Reset = "\033[0m"
-	Bold  = "\033[1m"
-	Dim   = "\033[2m"
+	Reset     = "\033[0m"
+	Bold      = "\033[1m"
+	Dim       = "\033[2m"
+	Underline = "\033[4m"
 )
 
 // ANSI 256-color codes (more compatible than RGB)
@@ -23,6 +24,11 @@ const (
 )
 
 var noColor = os.Getenv("NO_COLOR") != ""
+
+// SetNoColor overrides the color setting at runtime.
+func SetNoColor(val bool) {
+	noColor = val
+}
 
 // stylize applies a color/style if NO_COLOR is not set
 func stylize(style, text string) string {
@@ -134,3 +140,43 @@ func Prompt(question, options string) string {
 	}
 	return question + " " + stylize(Dim, options)
 }
+
+// BoldHash returns step hash formatted in bold (scoped to log command formatting)
+func BoldHash(text string) string {
+	return stylize(Bold, text)
+}
+
+// FilePath returns underlined text (for file paths)
+func FilePath(text string) string {
+	return stylize(Underline, text)
+}
+
+// ToolName returns semantic color for tool names based on their type
+func ToolName(name string) string {
+	switch name {
+	case "Edit":
+		return stylize(Amber256, name)
+	case "Write":
+		return stylize(Green256, name)
+	case "Bash":
+		return stylize(Blue256, name)
+	default:
+		return stylize(Blue256, name)
+	}
+}
+
+// Addition returns green colored text (for additions stat)
+func Addition(text string) string {
+	return stylize(Green256, text)
+}
+
+// Deletion returns red colored text (for deletions stat)
+func Deletion(text string) string {
+	return stylize(Red256, text)
+}
+
+// BoldText returns bold formatted text
+func BoldText(text string) string {
+	return stylize(Bold, text)
+}
+
