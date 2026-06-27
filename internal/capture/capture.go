@@ -230,11 +230,11 @@ func (r *Recorder) RecordAssistantAndFinalize(event AssistantResponse) error {
 		}
 		if ok {
 			if err := r.indexAndLinkStep(existingStep, session.SessionID, scope); err != nil {
-				logHookError(r.Store, fmt.Sprintf("recover existing turn %s: %v", scope.id, err))
+				LogHookError(r.Store.Root, fmt.Sprintf("recover existing turn %s: %v", scope.id, err))
 			}
 			if session.TranscriptPath != "" {
 				if err := r.ArchiveTranscript(session.SessionID, session.TranscriptPath); err != nil {
-					logHookError(r.Store, fmt.Sprintf("archive transcript: %v", err))
+					LogHookError(r.Store.Root, fmt.Sprintf("archive transcript: %v", err))
 				}
 			}
 			return nil
@@ -269,7 +269,7 @@ func (r *Recorder) RecordAssistantAndFinalize(event AssistantResponse) error {
 
 	if session.TranscriptPath != "" {
 		if err := r.ArchiveTranscript(session.SessionID, session.TranscriptPath); err != nil {
-			logHookError(r.Store, fmt.Sprintf("archive transcript: %v", err))
+			LogHookError(r.Store.Root, fmt.Sprintf("archive transcript: %v", err))
 		}
 	}
 
@@ -328,7 +328,7 @@ func (r *Recorder) adoptLegacySession(session SessionMetadata) error {
 					mergeLegacyIndex = true
 				} else {
 					mergeLegacyIndex = false
-					logHookError(r.Store, fmt.Sprintf("archiving divergent legacy session ref %s -> %s", session.externalID, session.SessionID))
+					LogHookError(r.Store.Root, fmt.Sprintf("archiving divergent legacy session ref %s -> %s", session.externalID, session.SessionID))
 					if archiveErr := r.archiveLegacySessionRef(session.externalID, legacyHead); archiveErr != nil {
 						return archiveErr
 					}
@@ -398,7 +398,7 @@ func (r *Recorder) adoptLegacyCanonicalRef(session SessionMetadata) error {
 			_ = r.Store.DeleteRef("sessions/"+oldCanonicalID, legacyHead)
 			return r.adoptLegacyCanonicalIndex(oldCanonicalID, session)
 		}
-		logHookError(r.Store, fmt.Sprintf("archiving divergent legacy canonical ref %s -> %s", oldCanonicalID, session.SessionID))
+		LogHookError(r.Store.Root, fmt.Sprintf("archiving divergent legacy canonical ref %s -> %s", oldCanonicalID, session.SessionID))
 		return r.archiveLegacySessionRef(oldCanonicalID, legacyHead)
 	}
 
@@ -506,7 +506,7 @@ func (r *Recorder) createStepForTurn(session SessionMetadata, scope turnScope) (
 		}
 
 		if err := computeAndWriteBlame(r.Store, parentHash, stepHash, treeHash); err != nil {
-			logHookError(r.Store, fmt.Sprintf("blame step %s: %v", stepHash, err))
+			LogHookError(r.Store.Root, fmt.Sprintf("blame step %s: %v", stepHash, err))
 		}
 
 		if err := r.Store.UpdateRef("sessions/"+sessionID, parentHash, stepHash); err != nil {
@@ -518,7 +518,7 @@ func (r *Recorder) createStepForTurn(session SessionMetadata, scope turnScope) (
 		}
 
 		if err := r.indexAndLinkStep(stepHash, sessionID, scope); err != nil {
-			logHookError(r.Store, fmt.Sprintf("index/link step %s: %v", stepHash, err))
+			LogHookError(r.Store.Root, fmt.Sprintf("index/link step %s: %v", stepHash, err))
 		}
 
 		return stepHash, nil
@@ -668,10 +668,12 @@ func computeAndWriteBlame(s *store.Store, parentHash, currentStepHash, treeHash 
 			oldBlame, err := s.ReadBlameForFile(parentHash, entry.Path)
 			if err == nil {
 				if err := s.WriteBlameForFile(currentStepHash, entry.Path, oldBlame); err != nil {
+					logBlameError(s, currentStepHash, entry.Path, err.Error())
 					problems = append(problems, fmt.Errorf("copy blame for %s: %w", entry.Path, err))
 				}
 				continue
 			}
+			logBlameError(s, currentStepHash, entry.Path, err.Error())
 			problems = append(problems, fmt.Errorf("read parent blame for unchanged %s: %w", entry.Path, err))
 			continue
 		}
@@ -681,23 +683,27 @@ func computeAndWriteBlame(s *store.Store, parentHash, currentStepHash, treeHash 
 		if hasParentEntry {
 			oldContent, err = s.ReadBlob(parentEntry.Blob)
 			if err != nil {
+				logBlameError(s, currentStepHash, entry.Path, err.Error())
 				problems = append(problems, fmt.Errorf("read parent blob for %s: %w", entry.Path, err))
 				continue
 			}
 			oldBlame, err = s.ReadBlameForFile(parentHash, parentEntry.Path)
 			if err != nil {
+				logBlameError(s, currentStepHash, entry.Path, err.Error())
 				problems = append(problems, fmt.Errorf("read parent blame for %s: %w", entry.Path, err))
 			}
 		}
 
 		newContent, err := s.ReadBlob(entry.Blob)
 		if err != nil {
+			logBlameError(s, currentStepHash, entry.Path, err.Error())
 			problems = append(problems, fmt.Errorf("read current blob for %s: %w", entry.Path, err))
 			continue
 		}
 
 		newBlame := store.ComputeBlame(oldContent, newContent, oldBlame, currentStepHash)
 		if err := s.WriteBlameForFile(currentStepHash, entry.Path, newBlame); err != nil {
+			logBlameError(s, currentStepHash, entry.Path, err.Error())
 			problems = append(problems, fmt.Errorf("write blame for %s: %w", entry.Path, err))
 		}
 	}
@@ -719,10 +725,13 @@ func isRegentCommand(toolName string, input json.RawMessage) bool {
 	if command == "" {
 		command, _ = args["cmd"].(string)
 	}
-	return startsWithRegentCommand(command)
+	return IsRegentCommand(command)
 }
 
-func startsWithRegentCommand(command string) bool {
+// IsRegentCommand reports whether the given command string starts with an
+// invocation of the rgt or regent CLI binary, after stripping environment
+// variable prefixes and path components.
+func IsRegentCommand(command string) bool {
 	fields := strings.Fields(strings.TrimSpace(command))
 	for len(fields) > 0 && strings.Contains(fields[0], "=") && !strings.HasPrefix(fields[0], "=") {
 		fields = fields[1:]
@@ -808,26 +817,34 @@ func newMessageID(kind string) string {
 	return fmt.Sprintf("msg_%d_%d_%s", time.Now().UnixNano(), messageCounter.Add(1), kind)
 }
 
-func logDebug(s *store.Store, msg string) {
-	logPath := filepath.Join(s.Root, "log", "hook-debug.log")
+// logToFile appends a formatted line to a log file under .regent/. The log
+// directory is created automatically; file I/O errors are silently discarded.
+func logToFile(root, relPath, line string) {
+	logPath := filepath.Join(root, relPath)
 	_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return
 	}
 	defer func() { _ = f.Close() }()
-
-	fmt.Fprintf(f, "[%s] %s\n", time.Now().Format(time.RFC3339), msg)
+	fmt.Fprintln(f, line)
 }
 
-func logHookError(s *store.Store, msg string) {
-	logPath := filepath.Join(s.Root, "log", "hook-error.log")
-	_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer func() { _ = f.Close() }()
+func logDebug(s *store.Store, msg string) {
+	logToFile(s.Root, "log/hook-debug.log",
+		fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), msg))
+}
 
-	fmt.Fprintf(f, "[%s] %s\n", time.Now().Format(time.RFC3339), msg)
+// LogHookError writes an error message to .regent/log/hook-error.log. It is
+// safe to call when the log directory does not yet exist; the directory is
+// created automatically. Errors from file I/O are silently discarded so that
+// hook error logging never interrupts the agent.
+func LogHookError(root string, msg string) {
+	logToFile(root, "log/hook-error.log",
+		fmt.Sprintf("[%s] %s", time.Now().Format(time.RFC3339), msg))
+}
+
+func logBlameError(s *store.Store, stepHash store.Hash, filePath, errMsg string) {
+	logToFile(s.Root, "log/blame-errors.log",
+		fmt.Sprintf("[%s] step=%s file=%s: %s", time.Now().Format(time.RFC3339), stepHash, filePath, errMsg))
 }

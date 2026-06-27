@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/regent-vcs/regent/internal/index"
@@ -56,6 +57,8 @@ func StatusCmd() *cobra.Command {
 			fmt.Println(style.Label("Consistency:"))
 			_ = validateConsistency(s, idx) // Prints its own error messages
 
+			checkBlameErrors(s)
+
 			return nil
 		},
 	}
@@ -107,4 +110,20 @@ func validateConsistency(s *store.Store, idx *index.DB) error {
 
 	fmt.Printf("  %s\n", style.Success("✓ All session refs match database"))
 	return nil
+}
+
+// checkBlameErrors reads the blame error log and warns if any per-file blame
+// failures were recorded. This check does not affect the exit code.
+func checkBlameErrors(s *store.Store) {
+	logPath := filepath.Join(s.Root, "log", "blame-errors.log")
+	data, err := os.ReadFile(logPath)
+	if err != nil || len(data) == 0 {
+		return
+	}
+
+	fmt.Printf("  %s\n", style.Warning("⚠ blame errors detected (see .regent/log/blame-errors.log for details)"))
+	fmt.Printf("  %s %s %s\n",
+		style.DimText("  Run"),
+		style.Label("rgt reindex"),
+		style.DimText("to recalculate blame data (planned)."))
 }

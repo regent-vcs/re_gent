@@ -338,10 +338,7 @@ func (idx *DB) ToolUseExists(sessionID, turnID, toolUseID string, allTurns bool)
 		  AND tool_use_id = ?
 	`
 	args := []interface{}{sessionID, toolUseID}
-	if !allTurns {
-		query += ` AND turn_id = ?`
-		args = append(args, turnID)
-	}
+	query, args = appendTurnClause(query, args, turnID, allTurns)
 
 	var count int
 	if err := idx.db.QueryRow(query, args...).Scan(&count); err != nil {
@@ -375,10 +372,7 @@ func (idx *DB) getPendingMessages(sessionID, turnID string, allTurns bool) ([]Me
 
 	where := `WHERE session_id = ? AND step_id IS NULL AND processed_at IS NULL`
 	args := []interface{}{sessionID}
-	if !allTurns {
-		where += ` AND turn_id = ?`
-		args = append(args, turnID)
-	}
+	where, args = appendTurnClause(where, args, turnID, allTurns)
 
 	rows, err := idx.db.Query(`
 		SELECT id, session_id, step_id, turn_id, seq_num, timestamp, processed_at, message_type,
@@ -471,10 +465,7 @@ func (idx *DB) linkPendingMessagesToStep(sessionID, turnID string, stepID store.
 		WHERE session_id = ? AND step_id IS NULL AND processed_at IS NULL
 	`
 	args := []interface{}{stepID, processedAt, sessionID}
-	if !allTurns {
-		query += ` AND turn_id = ?`
-		args = append(args, turnID)
-	}
+	query, args = appendTurnClause(query, args, turnID, allTurns)
 	result, err := idx.db.Exec(query, args...)
 	if err != nil {
 		return 0, err
@@ -509,10 +500,7 @@ func (idx *DB) markPendingMessagesProcessed(sessionID, turnID string, processedA
 		WHERE session_id = ? AND step_id IS NULL AND processed_at IS NULL
 	`
 	args := []interface{}{processedAt, sessionID}
-	if !allTurns {
-		query += ` AND turn_id = ?`
-		args = append(args, turnID)
-	}
+	query, args = appendTurnClause(query, args, turnID, allTurns)
 
 	result, err := idx.db.Exec(query, args...)
 	if err != nil {
@@ -529,6 +517,18 @@ func (idx *DB) InsertJSONLSnapshot(sessionID string, capturedAt int64, blobHash 
 	`, sessionID, capturedAt, blobHash)
 
 	return err
+}
+
+// appendTurnClause appends "AND turn_id = ?" to the query and turnID to args
+// when allTurns is false. This eliminates repeated conditional logic across
+// getPendingMessages, linkPendingMessagesToStep, markPendingMessagesProcessed,
+// and ToolUseExists.
+func appendTurnClause(query string, args []interface{}, turnID string, allTurns bool) (string, []interface{}) {
+	if !allTurns {
+		query += ` AND turn_id = ?`
+		args = append(args, turnID)
+	}
+	return query, args
 }
 
 func nullString(s string) sql.NullString {
