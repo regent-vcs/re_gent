@@ -14,8 +14,17 @@ help:
 	@echo "  make install    - Install rgt to GOPATH/bin"
 	@echo ""
 
+# Version stamping (mirrors .goreleaser.yaml ldflags). Falls back gracefully
+# outside a git checkout.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS := -X github.com/regent-vcs/regent/internal/cli.Version=$(VERSION) \
+           -X github.com/regent-vcs/regent/internal/cli.Commit=$(COMMIT) \
+           -X github.com/regent-vcs/regent/internal/cli.Date=$(DATE)
+
 build:
-	go build -o rgt ./cmd/rgt
+	go build -ldflags "$(LDFLAGS)" -o rgt ./cmd/rgt
 
 test:
 	go test ./...
