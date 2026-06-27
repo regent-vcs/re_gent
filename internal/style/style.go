@@ -179,4 +179,3 @@ func Deletion(text string) string {
 func BoldText(text string) string {
 	return stylize(Bold, text)
 }
-

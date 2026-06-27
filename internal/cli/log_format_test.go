@@ -654,4 +654,3 @@ func TestColorizedOutput(t *testing.T) {
 		}
 	})
 }
-
