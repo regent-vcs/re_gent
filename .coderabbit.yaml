@@ -1,0 +1,73 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+#
+# CodeRabbit configuration for re_gent.
+#
+# AI review runs automatically on every pull request to `main` via the
+# CodeRabbit GitHub App, which is free for open-source repos and needs no
+# API key. This file only tunes the review; the App must be installed once
+# on the repo/org for reviews to start (see README / repo settings).
+#
+# Schema + docs: https://docs.coderabbit.ai/getting-started/configure-coderabbit
+
+language: en-US
+
+tone_instructions: >-
+  Be concise and technical. Prioritize correctness, concurrency, and
+  data-integrity bugs over style nits. Flag anything that breaks an agent
+  hook, corrupts the object store, or violates content-addressing/CAS
+  invariants.
+
+reviews:
+  # "assertive" = more thorough feedback. Appropriate for a foundational VCS
+  # where correctness bugs are costly. Switch to "chill" if reviews get noisy.
+  profile: assertive
+  # Review, don't gate: never auto-request-changes / block a human merge.
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  poem: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+  # Skip build artifacts, generated files, and the object store.
+  path_filters:
+    - "!dist/**"
+    - "!bin/**"
+    - "!completions/**"
+    - "!.regent/**"
+    - "!coverage.out"
+    - "!go.sum"
+
+  path_instructions:
+    - path: "**/*.go"
+      instructions: >-
+        re_gent is a content-addressed, DAG-based VCS. Enforce these invariants:
+        refs are updated only via compare-and-swap; multi-row index writes go
+        through a SQLite transaction; identical bytes must hash to the same
+        BLAKE3 value and store once (free dedupe). Hooks run during live agent
+        turns and must never crash or block the agent — non-critical failures
+        should log to .regent/log/ and return cleanly rather than erroring out.
+        Watch for unchecked errors, goroutine and file-handle leaks, race
+        conditions on shared refs, and path traversal in workspace snapshotting.
+    - path: ".github/workflows/**"
+      instructions: >-
+        Pin third-party actions, keep the `permissions:` block as narrow as
+        possible, and never echo secrets into logs.
+
+  # Run the same linters CI uses, plus secret scanning, as part of the review.
+  tools:
+    golangci-lint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+
+chat:
+  auto_reply: true
