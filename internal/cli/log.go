@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/regent-vcs/regent/internal/index"
+	"github.com/regent-vcs/regent/internal/style"
 	"github.com/spf13/cobra"
 )
 
@@ -20,6 +21,7 @@ func LogCmd() *cobra.Command {
 	var conversationOnly bool
 	var filesOnly bool
 	var graph bool
+	var noColor bool
 
 	cmd := &cobra.Command{
 		Use:          "log [session-id]",
@@ -103,6 +105,10 @@ func LogCmd() *cobra.Command {
 				formatter = &DefaultFormatter{}
 			}
 
+			if noColor {
+				style.SetNoColor(true)
+			}
+
 			// Format and output
 			return formatter.Format(enriched, sessionID, conversation, files, os.Stdout)
 		},
@@ -118,6 +124,7 @@ func LogCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&conversationOnly, "conversation-only", false, "Show only conversation (hide files)")
 	cmd.Flags().BoolVar(&filesOnly, "files-only", false, "Show only files (hide conversation)")
 	cmd.Flags().BoolVar(&graph, "graph", false, "Show step lineage as ASCII graph")
+	cmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 
 	return cmd
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/regent-vcs/regent/internal/index"
 	"github.com/regent-vcs/regent/internal/store"
+	"github.com/regent-vcs/regent/internal/style"
 )
 
 // ---- pure helper tests ----
@@ -144,24 +145,53 @@ func TestGetSummary(t *testing.T) {
 }
 
 func TestStepToolLabel(t *testing.T) {
-	tests := []struct {
-		name string
-		step EnrichedStep
-		want string
-	}{
-		{"single_cause", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Write"}, Causes: []EnrichedCause{{}}}, "Write"},
-		{"multi_cause", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Bash"}, Causes: []EnrichedCause{{}, {}, {}}}, "Bash +2"},
-		{"zero_causes", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Read"}}, "Read"},
-		{"nil_causes", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Edit"}, Causes: nil}, "Edit"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := stepToolLabel(tt.step)
-			if got != tt.want {
-				t.Errorf("stepToolLabel() = %q, want %q", got, tt.want)
-			}
-		})
-	}
+	t.Run("no_color", func(t *testing.T) {
+		style.SetNoColor(true)
+		defer style.SetNoColor(false)
+
+		tests := []struct {
+			name string
+			step EnrichedStep
+			want string
+		}{
+			{"single_cause", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Write"}, Causes: []EnrichedCause{{}}}, "Write"},
+			{"multi_cause", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Bash"}, Causes: []EnrichedCause{{}, {}, {}}}, "Bash +2"},
+			{"zero_causes", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Read"}}, "Read"},
+			{"nil_causes", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Edit"}, Causes: nil}, "Edit"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				got := stepToolLabel(tt.step)
+				if got != tt.want {
+					t.Errorf("stepToolLabel() = %q, want %q", got, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("with_color", func(t *testing.T) {
+		style.SetNoColor(false)
+		defer style.SetNoColor(true)
+
+		tests := []struct {
+			name     string
+			step     EnrichedStep
+			expected string // Expected substring in colored output
+		}{
+			{"Write", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Write"}}, "\033[38;5;42mWrite\033[0m"},
+			{"Edit", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Edit"}}, "\033[38;5;214mEdit\033[0m"},
+			{"Bash", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Bash"}}, "\033[38;5;69mBash\033[0m"},
+			{"Read", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Read"}}, "\033[38;5;69mRead\033[0m"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				got := stepToolLabel(tt.step)
+				if !strings.Contains(got, tt.expected) {
+					t.Errorf("stepToolLabel() = %q, expected to contain %q", got, tt.expected)
+				}
+			})
+		}
+	})
 }
 
 func TestPrintWarnings(t *testing.T) {
@@ -540,6 +570,87 @@ func TestStatFormatter_Format(t *testing.T) {
 		out := buf.String()
 		if !strings.Contains(out, "s") {
 			t.Errorf("output missing session id: %s", out)
+		}
+	})
+}
+
+func TestColorizedOutput(t *testing.T) {
+	ts := time.Date(2026, 5, 2, 14, 30, 21, 0, time.UTC)
+	steps := []EnrichedStep{
+		{
+			StepInfo: index.StepInfo{Hash: "abcdef123456", ToolName: "Write", Timestamp: ts},
+			Files:    []string{"main.go"},
+			FileDiffs: []FileDiff{
+				{Path: "main.go", Status: "modified", Additions: 3, Deletions: 1},
+			},
+		},
+	}
+
+	t.Run("with_color", func(t *testing.T) {
+		style.SetNoColor(false)
+		defer style.SetNoColor(true)
+
+		var buf bytes.Buffer
+		f := &DefaultFormatter{}
+		if err := f.Format(steps, "sess-1", false, true, &buf); err != nil {
+			t.Fatalf("Format() returned error: %v", err)
+		}
+		out := buf.String()
+
+		// Hash should be bold: \033[1mabcdef12
+		if !strings.Contains(out, "\033[1mabcdef12") {
+			t.Errorf("Expected bold step hash in colored output, got %q", out)
+		}
+
+		// Tool name Write should be green: \033[38;5;42mWrite
+		if !strings.Contains(out, "\033[38;5;42mWrite") {
+			t.Errorf("Expected green tool name Write, got %q", out)
+		}
+
+		// File path should be underlined: \033[4mmain.go
+		if !strings.Contains(out, "\033[4mmain.go") {
+			t.Errorf("Expected underlined file path, got %q", out)
+		}
+
+		// Diff additions should be green (+3): \033[38;5;42m+3
+		if !strings.Contains(out, "\033[38;5;42m+3") {
+			t.Errorf("Expected green additions stat, got %q", out)
+		}
+
+		// Diff deletions should be red (-1): \033[38;5;196m-1
+		if !strings.Contains(out, "\033[38;5;196m-1") {
+			t.Errorf("Expected red deletions stat, got %q", out)
+		}
+	})
+
+	t.Run("no_color", func(t *testing.T) {
+		style.SetNoColor(true)
+		defer style.SetNoColor(false)
+
+		var buf bytes.Buffer
+		f := &DefaultFormatter{}
+		if err := f.Format(steps, "sess-1", false, true, &buf); err != nil {
+			t.Fatalf("Format() returned error: %v", err)
+		}
+		out := buf.String()
+
+		// Should not contain ANSI escape codes (e.g. \033[)
+		if strings.Contains(out, "\033[") {
+			t.Errorf("Expected no ANSI escape codes in no-color mode, got %q", out)
+		}
+
+		// Plain text should be present
+		if !strings.Contains(out, "abcdef12") {
+			t.Errorf("Expected hash to be present in plain output")
+		}
+		if !strings.Contains(out, "Write") {
+			t.Errorf("Expected tool name to be present in plain output")
+		}
+		if !strings.Contains(out, "main.go") {
+			t.Errorf("Expected file path to be present in plain output")
+		}
+		if !strings.Contains(out, "+3") || !strings.Contains(out, "-1") {
+			t.Errorf("Expected stats to be present in plain output")
 		}
 	})
 }

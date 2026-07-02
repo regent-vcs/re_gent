@@ -154,9 +154,9 @@ func formatConversationInternal(messages []ConversationMessage, indent, graphPre
 
 	var output strings.Builder
 
-	// Show hash at the top with timestamp (both muted)
+	// Show hash at the top with timestamp (timestamp muted)
 	if stepHash != "" {
-		subtitle := style.DimText(stepHash)
+		subtitle := stepHash
 		if timestamp != "" {
 			subtitle += style.DimText(" • " + timestamp)
 		}
@@ -234,7 +234,7 @@ func formatText(text string, indent string, maxLen int) string {
 // formatToolUse formats a tool invocation with key arguments
 func formatToolUse(tool ToolUse, indent string) string {
 	var parts []string
-	parts = append(parts, tool.Name)
+	parts = append(parts, style.ToolName(tool.Name))
 
 	// Add key arguments
 	if len(tool.Input) > 0 {
@@ -245,6 +245,9 @@ func formatToolUse(tool ToolUse, indent string) string {
 				// Truncate long values
 				if len(valStr) > 60 {
 					valStr = valStr[:57] + "..."
+				}
+				if key == "file_path" || key == "path" || key == "filename" {
+					valStr = style.FilePath(valStr)
 				}
 				args = append(args, fmt.Sprintf("%s: %s", key, valStr))
 			}
