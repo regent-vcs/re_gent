@@ -266,7 +266,7 @@ func hookCommands(t *testing.T, value interface{}) []string {
 		if !ok {
 			continue
 		}
-		hooks, _ := normalizeHookEntries(groupMap["hooks"])
+		hooks, _ := normalizeHookArray(groupMap["hooks"])
 		for _, hook := range hooks {
 			hookMap, ok := hook.(map[string]interface{})
 			if !ok {

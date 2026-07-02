@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/regent-vcs/regent/internal/capture"
 	"github.com/spf13/cobra"
@@ -129,21 +128,9 @@ func logHookCommandError(cwd string, err error) {
 	if err == nil || cwd == "" {
 		return
 	}
-
 	regentDir := filepath.Join(cwd, ".regent")
 	if _, statErr := os.Stat(regentDir); statErr != nil {
 		return
 	}
-
-	logPath := filepath.Join(regentDir, "log", "hook-error.log")
-	if mkErr := os.MkdirAll(filepath.Dir(logPath), 0o755); mkErr != nil {
-		return
-	}
-	f, openErr := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if openErr != nil {
-		return
-	}
-	defer func() { _ = f.Close() }()
-
-	fmt.Fprintf(f, "[%s] %v\n", time.Now().Format(time.RFC3339), err)
+	capture.LogHookError(regentDir, err.Error())
 }

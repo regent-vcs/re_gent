@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/regent-vcs/regent/internal/capture"
 	"github.com/regent-vcs/regent/internal/ignore"
 	"github.com/regent-vcs/regent/internal/index"
 	"github.com/regent-vcs/regent/internal/snapshot"
@@ -115,21 +115,10 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 	return nil
 }
 
-// logError writes errors to .regent/log/hook-error.log instead of stdout/stderr
-// Returns nil so the hook doesn't break the agent
+// logError writes errors to .regent/log/hook-error.log instead of stdout/stderr.
+// Returns nil so the hook doesn't break the agent.
 func logError(s *store.Store, err error) error {
-	logPath := filepath.Join(s.Root, "log", "hook-error.log")
-	f, openErr := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if openErr != nil {
-		// Can't even log - give up silently
-		return nil
-	}
-	defer func() { _ = f.Close() }()
-
-	timestamp := time.Now().Format(time.RFC3339)
-	_, _ = fmt.Fprintf(f, "[%s] %v\n", timestamp, err)
-
-	// Return nil so hook exits cleanly and doesn't break the agent
+	capture.LogHookError(s.Root, err.Error())
 	return nil
 }
 

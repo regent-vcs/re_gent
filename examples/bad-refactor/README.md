@@ -27,6 +27,12 @@ The setup script creates a throwaway workspace, initializes `.regent/`, and pre-
 
 It should complete in a few seconds.
 
+If you want to run it containerized, run this from the repository root:
+```bash
+docker build -t rgt-demo -f ./examples/bad-refactor/Dockerfile . \
+  && docker run -it rgt-demo
+```
+
 ## Reproduce The Breakage
 
 Run the regression test:

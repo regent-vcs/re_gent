@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/pelletier/go-toml/v2"
+	"github.com/regent-vcs/regent/internal/capture"
 	"github.com/regent-vcs/regent/internal/index"
 	"github.com/regent-vcs/regent/internal/store"
 	"github.com/regent-vcs/regent/internal/style"
@@ -520,25 +521,35 @@ func removeRegentHookCommands(hooks map[string]interface{}, eventName string) {
 	hooks[eventName] = groups
 }
 
-func normalizeHookGroups(value interface{}) []interface{} {
+// normalizeHookArray normalizes arbitrary hook configuration values (from TOML
+// or JSON) into a typed []interface{} slice. It returns (nil, false) when the
+// value is nil so callers can distinguish "absent" from "empty". The string case
+// in normalizeHookGroups means this function intentionally excludes it.
+func normalizeHookArray(value interface{}) ([]interface{}, bool) {
 	switch typed := value.(type) {
 	case nil:
-		return nil
+		return nil, false
 	case []interface{}:
-		return typed
+		return typed, true
 	case []map[string]interface{}:
-		groups := make([]interface{}, 0, len(typed))
-		for _, group := range typed {
-			groups = append(groups, group)
+		items := make([]interface{}, 0, len(typed))
+		for _, item := range typed {
+			items = append(items, item)
 		}
-		return groups
+		return items, true
 	case map[string]interface{}:
-		return []interface{}{typed}
-	case string:
-		return []interface{}{hookGroup(typed)}
+		return []interface{}{typed}, true
 	default:
-		return []interface{}{typed}
+		return []interface{}{typed}, true
 	}
+}
+
+func normalizeHookGroups(value interface{}) []interface{} {
+	if s, ok := value.(string); ok {
+		return []interface{}{hookGroup(s)}
+	}
+	groups, _ := normalizeHookArray(value)
+	return groups
 }
 
 func filterRegentHookCommands(groups []interface{}) []interface{} {
@@ -550,7 +561,7 @@ func filterRegentHookCommands(groups []interface{}) []interface{} {
 			continue
 		}
 
-		hookEntries, hasHooks := normalizeHookEntries(groupMap["hooks"])
+		hookEntries, hasHooks := normalizeHookArray(groupMap["hooks"])
 		if !hasHooks {
 			filtered = append(filtered, group)
 			continue
@@ -564,7 +575,7 @@ func filterRegentHookCommands(groups []interface{}) []interface{} {
 				continue
 			}
 			command, _ := hookMap["command"].(string)
-			if isRegentHookCommand(command) {
+			if capture.IsRegentCommand(command) {
 				continue
 			}
 			nextHookEntries = append(nextHookEntries, hookEntry)
@@ -583,25 +594,6 @@ func filterRegentHookCommands(groups []interface{}) []interface{} {
 	return filtered
 }
 
-func normalizeHookEntries(value interface{}) ([]interface{}, bool) {
-	switch typed := value.(type) {
-	case nil:
-		return nil, false
-	case []interface{}:
-		return typed, true
-	case []map[string]interface{}:
-		entries := make([]interface{}, 0, len(typed))
-		for _, entry := range typed {
-			entries = append(entries, entry)
-		}
-		return entries, true
-	case map[string]interface{}:
-		return []interface{}{typed}, true
-	default:
-		return []interface{}{typed}, true
-	}
-}
-
 func hookGroup(command string) map[string]interface{} {
 	return map[string]interface{}{
 		"matcher": "",
@@ -612,23 +604,6 @@ func hookGroup(command string) map[string]interface{} {
 			},
 		},
 	}
-}
-
-func isRegentHookCommand(command string) bool {
-	fields := strings.Fields(strings.TrimSpace(command))
-	for len(fields) > 0 && strings.Contains(fields[0], "=") && !strings.HasPrefix(fields[0], "=") {
-		fields = fields[1:]
-	}
-	if len(fields) == 0 {
-		return false
-	}
-
-	first := strings.TrimPrefix(filepath.Base(fields[0]), "./")
-	if first == "rgt" || first == "regent" {
-		return true
-	}
-
-	return len(fields) >= 3 && fields[0] == "go" && fields[1] == "run" && strings.Contains(fields[2], "cmd/rgt")
 }
 
 func printExistingHooks(projectRoot string) {
@@ -644,10 +619,10 @@ func printExistingHooks(projectRoot string) {
 					groups := normalizeHookGroups(hooks[event])
 					for _, g := range groups {
 						if gm, ok := g.(map[string]interface{}); ok {
-							entries, _ := normalizeHookEntries(gm["hooks"])
+							entries, _ := normalizeHookArray(gm["hooks"])
 							for _, e := range entries {
 								if em, ok := e.(map[string]interface{}); ok {
-									if cmd, _ := em["command"].(string); isRegentHookCommand(cmd) {
+									if cmd, _ := em["command"].(string); capture.IsRegentCommand(cmd) {
 										fmt.Printf("  %s Claude Code\n", style.Success(""))
 										goto doneClaudeCheck
 									}
@@ -670,10 +645,10 @@ doneClaudeCheck:
 					groups := normalizeHookGroups(hooks[event])
 					for _, g := range groups {
 						if gm, ok := g.(map[string]interface{}); ok {
-							entries, _ := normalizeHookEntries(gm["hooks"])
+							entries, _ := normalizeHookArray(gm["hooks"])
 							for _, e := range entries {
 								if em, ok := e.(map[string]interface{}); ok {
-									if cmd, _ := em["command"].(string); isRegentHookCommand(cmd) {
+									if cmd, _ := em["command"].(string); capture.IsRegentCommand(cmd) {
 										fmt.Printf("  %s Codex\n", style.Success(""))
 										goto doneCodexCheck
 									}
