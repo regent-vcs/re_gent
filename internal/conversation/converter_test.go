@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/regent-vcs/regent/internal/style"
 )
 
 func TestExtractConversation_SimpleUserMessage(t *testing.T) {
@@ -263,7 +265,7 @@ func TestFormatConversation_Simple(t *testing.T) {
 		},
 	}
 
-	output := FormatConversation(msgs, "")
+	output := FormatConversation(style.New(false), msgs, "")
 	if output == "" {
 		t.Error("Expected non-empty output")
 	}
@@ -294,7 +296,7 @@ func TestFormatConversation_WithToolUse(t *testing.T) {
 		},
 	}
 
-	output := FormatConversation(msgs, "")
+	output := FormatConversation(style.New(false), msgs, "")
 	if !strings.Contains(output, "Read") {
 		t.Error("Output should contain tool name 'Read'")
 	}
@@ -305,7 +307,7 @@ func TestFormatConversation_WithToolUse(t *testing.T) {
 
 func TestFormatConversation_Empty(t *testing.T) {
 	msgs := []ConversationMessage{}
-	output := FormatConversation(msgs, "")
+	output := FormatConversation(style.New(false), msgs, "")
 	if output != "" {
 		t.Errorf("Expected empty output for empty messages, got: %s", output)
 	}
@@ -373,7 +375,7 @@ func TestFormatToolUse_TruncatesLongValues(t *testing.T) {
 		},
 	}
 
-	output := formatToolUse(tool, "")
+	output := formatToolUse(style.New(false), tool, "")
 	if !strings.Contains(output, "Write") {
 		t.Error("Output should contain tool name")
 	}

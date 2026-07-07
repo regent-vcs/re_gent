@@ -53,15 +53,13 @@ type FileDiff struct {
 
 // LogFormatter formats steps for output
 type LogFormatter interface {
-	Format(steps []EnrichedStep, sessionID string, showConversation bool, showFiles bool, w io.Writer) error
+	Format(styler *style.Styler, steps []EnrichedStep, sessionID string, showConversation bool, showFiles bool, w io.Writer) error
 }
 
 // DefaultFormatter produces timeline view with arrows
-type DefaultFormatter struct {
-	NoColor bool
-}
+type DefaultFormatter struct{}
 
-func (f *DefaultFormatter) Format(steps []EnrichedStep, sessionID string, showConversation bool, showFiles bool, w io.Writer) error {
+func (f *DefaultFormatter) Format(styler *style.Styler, steps []EnrichedStep, sessionID string, showConversation bool, showFiles bool, w io.Writer) error {
 	if len(steps) == 0 {
 		return nil
 	}
@@ -74,9 +72,9 @@ func (f *DefaultFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 
 	// Session header
 	fmt.Fprintf(w, "%s %s %s\n\n",
-		style.Label("Session:"),
-		style.Hash(sessionID),
-		style.DimText(fmt.Sprintf("(%d steps, %s elapsed)", len(steps), formatDuration(totalElapsed))))
+		styler.Label("Session:"),
+		styler.Hash(sessionID),
+		styler.DimText(fmt.Sprintf("(%d steps, %s elapsed)", len(steps), formatDuration(totalElapsed))))
 
 	// When showing conversation, reverse order (oldest first, like chat)
 	// Also force graph rendering for conversation mode
@@ -94,16 +92,16 @@ func (f *DefaultFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 			// Show graph prefix
 			graphPrefix := step.GraphPrefix
 			if graphPrefix == "" {
-				graphPrefix = style.DimText("* ")
+				graphPrefix = styler.DimText("* ")
 			}
 
 			conv, _ := conversation.ExtractConversation(step.Messages)
-			timestamp := step.StepInfo.Timestamp.Format("15:04:05")
-			formatted := conversation.FormatConversationWithHash(conv, graphPrefix, style.Hash(string(step.StepInfo.Hash[:8])), timestamp)
+			timestamp := styler.Timestamp(step.StepInfo.Timestamp.Format("15:04:05"))
+			formatted := conversation.FormatConversationWithHash(styler, conv, graphPrefix, styler.BoldHash(string(step.StepInfo.Hash[:8])), timestamp)
 			if formatted != "" {
 				fmt.Fprint(w, formatted)
 			}
-			printWarnings(w, step.Warnings)
+			printWarnings(styler, w, step.Warnings)
 			fmt.Fprintln(w) // Blank line after conversation
 			continue
 		}
@@ -117,15 +115,15 @@ func (f *DefaultFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 
 		// Show step hash and timestamp
 		fmt.Fprintf(w, "%s %s  %s",
-			style.Label(stepToolLabel(step)),
-			style.Hash(string(step.StepInfo.Hash[:8])),
-			style.Timestamp(step.StepInfo.Timestamp.Format("15:04:05")))
+			stepToolLabel(styler, step),
+			styler.BoldHash(string(step.StepInfo.Hash[:8])),
+			styler.Timestamp(step.StepInfo.Timestamp.Format("15:04:05")))
 
 		if step.Duration > 0 {
-			fmt.Fprintf(w, "  %s", style.DimText(fmt.Sprintf("(%s)", formatDuration(step.Duration))))
+			fmt.Fprintf(w, "  %s", styler.DimText(fmt.Sprintf("(%s)", formatDuration(step.Duration))))
 		}
 		fmt.Fprintln(w)
-		printWarnings(w, step.Warnings)
+		printWarnings(styler, w, step.Warnings)
 
 		// Show what the tool did (command, file, etc.) - only if NOT in conversation mode
 		if !showConversation {
@@ -136,7 +134,7 @@ func (f *DefaultFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 					if cmd, ok := args["command"].(string); ok {
 						fmt.Fprintf(w, "  %s\n", truncate(cmd, 90))
 					} else if filePath, ok := args["file_path"].(string); ok {
-						fmt.Fprintf(w, "  %s\n", filePath)
+						fmt.Fprintf(w, "  %s\n", styler.FilePath(filePath))
 					}
 				}
 			}
@@ -163,7 +161,7 @@ func (f *DefaultFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 			if len(relevantDiffs) > 0 {
 				fmt.Fprintln(w)
 				for _, fd := range relevantDiffs {
-					fmt.Fprintf(w, "  %s  %s\n", fd.Path, formatFileStat(fd))
+					fmt.Fprintf(w, "  %s  %s\n", styler.FilePath(fd.Path), formatFileStat(styler, fd))
 				}
 			}
 		}
@@ -180,14 +178,17 @@ func (f *DefaultFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 // OnelineFormatter produces compact one-line-per-step output
 type OnelineFormatter struct{}
 
-func (f *OnelineFormatter) Format(steps []EnrichedStep, sessionID string, showConversation bool, showFiles bool, w io.Writer) error {
+func (f *OnelineFormatter) Format(styler *style.Styler, steps []EnrichedStep, sessionID string, showConversation bool, showFiles bool, w io.Writer) error {
 	for _, step := range steps {
 		summary := getSummary(step)
+		if len(step.Files) > 0 && summary == step.Files[0] {
+			summary = styler.FilePath(summary)
+		}
 
 		// Build line
 		line := fmt.Sprintf("%s %s %s",
-			string(step.StepInfo.Hash[:8]),
-			stepToolLabel(step),
+			styler.BoldHash(string(step.StepInfo.Hash[:8])),
+			stepToolLabel(styler, step),
 			summary)
 
 		// Append file stats if requested
@@ -197,7 +198,7 @@ func (f *OnelineFormatter) Format(steps []EnrichedStep, sessionID string, showCo
 				totalAdd += fd.Additions
 				totalDel += fd.Deletions
 			}
-			line += fmt.Sprintf(" (+%d -%d)", totalAdd, totalDel)
+			line += fmt.Sprintf(" (%s %s)", styler.Addition(fmt.Sprintf("+%d", totalAdd)), styler.Deletion(fmt.Sprintf("-%d", totalDel)))
 		}
 
 		fmt.Fprintln(w, line)
@@ -233,7 +234,7 @@ type jsonCause struct {
 	Result    json.RawMessage `json:"result,omitempty"`
 }
 
-func (f *JSONFormatter) Format(steps []EnrichedStep, sessionID string, showConversation bool, showFiles bool, w io.Writer) error {
+func (f *JSONFormatter) Format(styler *style.Styler, steps []EnrichedStep, sessionID string, showConversation bool, showFiles bool, w io.Writer) error {
 	output := struct {
 		SessionID string     `json:"session_id"`
 		Steps     []jsonStep `json:"steps"`
@@ -290,27 +291,27 @@ func (f *JSONFormatter) Format(steps []EnrichedStep, sessionID string, showConve
 // StatFormatter shows file statistics
 type StatFormatter struct{}
 
-func (f *StatFormatter) Format(steps []EnrichedStep, sessionID string, showConversation bool, showFiles bool, w io.Writer) error {
+func (f *StatFormatter) Format(styler *style.Styler, steps []EnrichedStep, sessionID string, showConversation bool, showFiles bool, w io.Writer) error {
 	fmt.Fprintf(w, "%s %s %s\n\n",
-		style.Label("Session:"),
-		style.Hash(sessionID),
-		style.DimText(fmt.Sprintf("(%d steps)", len(steps))))
+		styler.Label("Session:"),
+		styler.Hash(sessionID),
+		styler.DimText(fmt.Sprintf("(%d steps)", len(steps))))
 
 	for _, step := range steps {
 		fmt.Fprintf(w, "%s  %s  %s\n",
-			style.Hash(string(step.StepInfo.Hash[:8])),
-			stepToolLabel(step),
-			style.Timestamp(step.StepInfo.Timestamp.Format("15:04:05")))
+			styler.BoldHash(string(step.StepInfo.Hash[:8])),
+			stepToolLabel(styler, step),
+			styler.Timestamp(step.StepInfo.Timestamp.Format("15:04:05")))
 
 		// Show file diffs with stats if --files flag
 		if showFiles && len(step.FileDiffs) > 0 {
 			for _, fd := range step.FileDiffs {
-				fmt.Fprintf(w, " %s  %s\n", fd.Path, formatFileStat(fd))
+				fmt.Fprintf(w, " %s  %s\n", styler.FilePath(fd.Path), formatFileStat(styler, fd))
 			}
 		} else if len(step.Files) > 0 {
 			// Backward compat: show files from tool args
 			for _, file := range step.Files {
-				fmt.Fprintf(w, " %s\n", file)
+				fmt.Fprintf(w, " %s\n", styler.FilePath(file))
 			}
 		} else {
 			// Show command or summary for non-file operations
@@ -318,7 +319,7 @@ func (f *StatFormatter) Format(steps []EnrichedStep, sessionID string, showConve
 				var args map[string]interface{}
 				if json.Unmarshal(step.Args, &args) == nil {
 					if cmd, ok := args["command"].(string); ok {
-						fmt.Fprintf(w, " %s\n", style.DimText(fmt.Sprintf("(command: %s)", truncate(cmd, 60))))
+						fmt.Fprintf(w, " %s\n", styler.DimText(fmt.Sprintf("(command: %s)", truncate(cmd, 60))))
 					}
 				}
 			}
@@ -327,10 +328,10 @@ func (f *StatFormatter) Format(steps []EnrichedStep, sessionID string, showConve
 		// Show conversation if --conversation flag
 		if showConversation && len(step.Messages) > 0 {
 			fmt.Fprintln(w)
-			formatted := FormatMessagesHumanReadable(step.Messages, " ")
+			formatted := FormatMessagesHumanReadable(styler, step.Messages, " ")
 			fmt.Fprint(w, formatted)
 		}
-		printWarnings(w, step.Warnings)
+		printWarnings(styler, w, step.Warnings)
 
 		fmt.Fprintln(w)
 	}
@@ -350,23 +351,23 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
 }
 
-func printWarnings(w io.Writer, warnings []string) {
+func printWarnings(styler *style.Styler, w io.Writer, warnings []string) {
 	for _, warning := range warnings {
-		fmt.Fprintf(w, "  %s\n", style.Warning(warning))
+		fmt.Fprintf(w, "  %s\n", styler.Warning(warning))
 	}
 }
 
-func formatFileStat(fd FileDiff) string {
+func formatFileStat(styler *style.Styler, fd FileDiff) string {
 	if fd.IsBinary {
-		return style.DimText("(binary)")
+		return styler.DimText("(binary)")
 	}
 	if fd.Status == "added" {
-		return style.DimText(fmt.Sprintf("+%d", fd.Additions))
+		return styler.Addition(fmt.Sprintf("+%d", fd.Additions))
 	}
 	if fd.Status == "deleted" {
-		return style.DimText(fmt.Sprintf("-%d", fd.Deletions))
+		return styler.Deletion(fmt.Sprintf("-%d", fd.Deletions))
 	}
-	return style.DimText(fmt.Sprintf("+%d -%d", fd.Additions, fd.Deletions))
+	return styler.Addition(fmt.Sprintf("+%d", fd.Additions)) + " " + styler.Deletion(fmt.Sprintf("-%d", fd.Deletions))
 }
 
 func truncate(s string, maxLen int) string {
@@ -395,9 +396,11 @@ func getSummary(step EnrichedStep) string {
 	return ""
 }
 
-func stepToolLabel(step EnrichedStep) string {
+func stepToolLabel(styler *style.Styler, step EnrichedStep) string {
+	name := step.StepInfo.ToolName
+	colored := styler.ToolName(name)
 	if len(step.Causes) <= 1 {
-		return step.StepInfo.ToolName
+		return colored
 	}
-	return fmt.Sprintf("%s +%d", step.StepInfo.ToolName, len(step.Causes)-1)
+	return fmt.Sprintf("%s +%d", colored, len(step.Causes)-1)
 }

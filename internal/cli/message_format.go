@@ -10,19 +10,19 @@ import (
 )
 
 // FormatMessagesHumanReadable converts raw message JSON into readable conversation format
-func FormatMessagesHumanReadable(messages []json.RawMessage, indent string) string {
+func FormatMessagesHumanReadable(styler *style.Styler, messages []json.RawMessage, indent string) string {
 	if len(messages) == 0 {
-		return style.DimText(indent + "(no conversation)")
+		return styler.DimText(indent + "(no conversation)")
 	}
 
 	// Extract actual conversation from agent wrapper format (Claude Code, etc.)
 	conv, err := conversation.ExtractConversation(messages)
 	if err != nil || len(conv) == 0 {
-		return style.DimText(indent + fmt.Sprintf("(no conversation extracted from %d events)\n", len(messages)))
+		return styler.DimText(indent + fmt.Sprintf("(no conversation extracted from %d events)\n", len(messages)))
 	}
 
 	// Format conversation for display
-	return conversation.FormatConversation(conv, indent)
+	return conversation.FormatConversation(styler, conv, indent)
 }
 
 // PLACEHOLDER - will implement proper parsing once we understand the format

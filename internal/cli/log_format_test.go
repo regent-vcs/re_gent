@@ -9,6 +9,7 @@ import (
 
 	"github.com/regent-vcs/regent/internal/index"
 	"github.com/regent-vcs/regent/internal/store"
+	"github.com/regent-vcs/regent/internal/style"
 )
 
 // ---- pure helper tests ----
@@ -49,7 +50,7 @@ func TestFormatFileStat(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := formatFileStat(tt.fd)
+			got := formatFileStat(style.New(false), tt.fd)
 			// Style wraps output; verify non-empty and contains expected indicators
 			if got == "" {
 				t.Errorf("formatFileStat(%+v) returned empty string", tt.fd)
@@ -144,31 +145,56 @@ func TestGetSummary(t *testing.T) {
 }
 
 func TestStepToolLabel(t *testing.T) {
-	tests := []struct {
-		name string
-		step EnrichedStep
-		want string
-	}{
-		{"single_cause", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Write"}, Causes: []EnrichedCause{{}}}, "Write"},
-		{"multi_cause", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Bash"}, Causes: []EnrichedCause{{}, {}, {}}}, "Bash +2"},
-		{"zero_causes", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Read"}}, "Read"},
-		{"nil_causes", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Edit"}, Causes: nil}, "Edit"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := stepToolLabel(tt.step)
-			if got != tt.want {
-				t.Errorf("stepToolLabel() = %q, want %q", got, tt.want)
-			}
-		})
-	}
+	t.Run("no_color", func(t *testing.T) {
+
+		tests := []struct {
+			name string
+			step EnrichedStep
+			want string
+		}{
+			{"single_cause", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Write"}, Causes: []EnrichedCause{{}}}, "Write"},
+			{"multi_cause", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Bash"}, Causes: []EnrichedCause{{}, {}, {}}}, "Bash +2"},
+			{"zero_causes", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Read"}}, "Read"},
+			{"nil_causes", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Edit"}, Causes: nil}, "Edit"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				got := stepToolLabel(style.New(true), tt.step)
+				if got != tt.want {
+					t.Errorf("stepToolLabel() = %q, want %q", got, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("with_color", func(t *testing.T) {
+
+		tests := []struct {
+			name     string
+			step     EnrichedStep
+			expected string // Expected substring in colored output
+		}{
+			{"Write", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Write"}}, "\033[38;5;42mWrite\033[0m"},
+			{"Edit", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Edit"}}, "\033[38;5;214mEdit\033[0m"},
+			{"Bash", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Bash"}}, "\033[38;5;69mBash\033[0m"},
+			{"Read", EnrichedStep{StepInfo: index.StepInfo{ToolName: "Read"}}, "\033[38;5;69mRead\033[0m"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				got := stepToolLabel(style.New(false), tt.step)
+				if !strings.Contains(got, tt.expected) {
+					t.Errorf("stepToolLabel() = %q, expected to contain %q", got, tt.expected)
+				}
+			})
+		}
+	})
 }
 
 func TestPrintWarnings(t *testing.T) {
 	// Empty warnings produce no output
 	t.Run("empty", func(t *testing.T) {
 		var buf bytes.Buffer
-		printWarnings(&buf, nil)
+		printWarnings(style.New(false), &buf, nil)
 		if buf.Len() != 0 {
 			t.Errorf("printWarnings with nil produced output: %q", buf.String())
 		}
@@ -176,7 +202,7 @@ func TestPrintWarnings(t *testing.T) {
 
 	t.Run("with_warnings", func(t *testing.T) {
 		var buf bytes.Buffer
-		printWarnings(&buf, []string{"warning one", "warning two"})
+		printWarnings(style.New(false), &buf, []string{"warning one", "warning two"})
 		out := buf.String()
 		if !strings.Contains(out, "warning one") {
 			t.Errorf("output missing first warning: %q", out)
@@ -206,7 +232,7 @@ func TestDefaultFormatter_Format(t *testing.T) {
 	t.Run("empty_steps", func(t *testing.T) {
 		var buf bytes.Buffer
 		f := &DefaultFormatter{}
-		if err := f.Format([]EnrichedStep{}, "sess-1", false, false, &buf); err != nil {
+		if err := f.Format(style.New(false), []EnrichedStep{}, "sess-1", false, false, &buf); err != nil {
 			t.Fatalf("Format() returned error: %v", err)
 		}
 		if buf.Len() != 0 {
@@ -224,7 +250,7 @@ func TestDefaultFormatter_Format(t *testing.T) {
 		steps[0].FileDiffs = []FileDiff{{Path: "main.go", Status: "added", Additions: 10}}
 		steps[0].Duration = 30 * time.Second
 
-		if err := f.Format(steps, "sess-1", false, true, &buf); err != nil {
+		if err := f.Format(style.New(false), steps, "sess-1", false, true, &buf); err != nil {
 			t.Fatalf("Format() returned error: %v", err)
 		}
 		out := buf.String()
@@ -245,7 +271,7 @@ func TestDefaultFormatter_Format(t *testing.T) {
 		steps := []EnrichedStep{
 			makeTestStep("eeeeeeeef", "Write", []string{"f.txt"}, nil, ts),
 		}
-		if err := f.Format(steps, "sess-1", true, false, &buf); err != nil {
+		if err := f.Format(style.New(false), steps, "sess-1", true, false, &buf); err != nil {
 			t.Fatalf("Format() returned error: %v", err)
 		}
 		// Conversation mode should produce some output (even if no messages)
@@ -260,7 +286,7 @@ func TestDefaultFormatter_Format(t *testing.T) {
 		steps := []EnrichedStep{
 			{StepInfo: index.StepInfo{Hash: "ffffaaaabbbb", ToolName: "Read", Timestamp: ts}, GraphPrefix: "* "},
 		}
-		if err := f.Format(steps, "sess-2", false, false, &buf); err != nil {
+		if err := f.Format(style.New(false), steps, "sess-2", false, false, &buf); err != nil {
 			t.Fatalf("Format() returned error: %v", err)
 		}
 		out := buf.String()
@@ -280,7 +306,7 @@ func TestOnelineFormatter_Format(t *testing.T) {
 			makeTestStep("aaaabbbb", "Write", []string{"f.go"}, nil, ts),
 			makeTestStep("ccccdddd", "Read", nil, nil, ts),
 		}
-		if err := f.Format(steps, "sess-1", false, false, &buf); err != nil {
+		if err := f.Format(style.New(true), steps, "sess-1", false, false, &buf); err != nil {
 			t.Fatalf("Format() returned error: %v", err)
 		}
 		out := buf.String()
@@ -308,7 +334,7 @@ func TestOnelineFormatter_Format(t *testing.T) {
 				},
 			},
 		}
-		if err := f.Format(steps, "sess-1", false, true, &buf); err != nil {
+		if err := f.Format(style.New(true), steps, "sess-1", false, true, &buf); err != nil {
 			t.Fatalf("Format() returned error: %v", err)
 		}
 		out := buf.String()
@@ -320,7 +346,7 @@ func TestOnelineFormatter_Format(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		var buf bytes.Buffer
 		f := &OnelineFormatter{}
-		if err := f.Format([]EnrichedStep{}, "sess-1", false, false, &buf); err != nil {
+		if err := f.Format(style.New(true), []EnrichedStep{}, "sess-1", false, false, &buf); err != nil {
 			t.Fatalf("Format() returned error: %v", err)
 		}
 		if buf.Len() != 0 {
@@ -338,7 +364,7 @@ func TestJSONFormatter_Format(t *testing.T) {
 		steps := []EnrichedStep{
 			makeTestStep("aaaabbbbccccdddd", "Write", []string{"f.go"}, json.RawMessage(`{"file_path":"f.go"}`), ts),
 		}
-		if err := f.Format(steps, "sess-1", false, false, &buf); err != nil {
+		if err := f.Format(style.New(false), steps, "sess-1", false, false, &buf); err != nil {
 			t.Fatalf("Format() returned error: %v", err)
 		}
 
@@ -376,7 +402,7 @@ func TestJSONFormatter_Format(t *testing.T) {
 				Messages:  []json.RawMessage{json.RawMessage(`{"type":"user"}`)},
 			},
 		}
-		if err := f.Format(steps, "sess-x", true, true, &buf); err != nil {
+		if err := f.Format(style.New(false), steps, "sess-x", true, true, &buf); err != nil {
 			t.Fatalf("Format() returned error: %v", err)
 		}
 		var out struct {
@@ -408,7 +434,7 @@ func TestJSONFormatter_Format(t *testing.T) {
 				},
 			},
 		}
-		if err := f.Format(steps, "sess-1", false, false, &buf); err != nil {
+		if err := f.Format(style.New(false), steps, "sess-1", false, false, &buf); err != nil {
 			t.Fatalf("Format() returned error: %v", err)
 		}
 		var out struct {
@@ -436,7 +462,7 @@ func TestJSONFormatter_Format(t *testing.T) {
 				Warnings: []string{"disk full"},
 			},
 		}
-		if err := f.Format(steps, "s", false, false, &buf); err != nil {
+		if err := f.Format(style.New(false), steps, "s", false, false, &buf); err != nil {
 			t.Fatalf("Format() returned error: %v", err)
 		}
 		var out struct {
@@ -455,7 +481,7 @@ func TestJSONFormatter_Format(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		var buf bytes.Buffer
 		f := &JSONFormatter{}
-		if err := f.Format([]EnrichedStep{}, "sess-1", false, false, &buf); err != nil {
+		if err := f.Format(style.New(false), []EnrichedStep{}, "sess-1", false, false, &buf); err != nil {
 			t.Fatalf("Format() returned error: %v", err)
 		}
 		var out struct {
@@ -479,7 +505,7 @@ func TestStatFormatter_Format(t *testing.T) {
 		steps := []EnrichedStep{
 			makeTestStep("aaaabbbb", "Write", []string{"f.go"}, nil, ts),
 		}
-		if err := f.Format(steps, "sess-1", false, false, &buf); err != nil {
+		if err := f.Format(style.New(false), steps, "sess-1", false, false, &buf); err != nil {
 			t.Fatalf("Format() returned error: %v", err)
 		}
 		out := buf.String()
@@ -503,7 +529,7 @@ func TestStatFormatter_Format(t *testing.T) {
 				},
 			},
 		}
-		if err := f.Format(steps, "sess-1", false, true, &buf); err != nil {
+		if err := f.Format(style.New(false), steps, "sess-1", false, true, &buf); err != nil {
 			t.Fatalf("Format() returned error: %v", err)
 		}
 		out := buf.String()
@@ -521,7 +547,7 @@ func TestStatFormatter_Format(t *testing.T) {
 				Args:     json.RawMessage(`{"command":"echo hello"}`),
 			},
 		}
-		if err := f.Format(steps, "sess-1", false, false, &buf); err != nil {
+		if err := f.Format(style.New(false), steps, "sess-1", false, false, &buf); err != nil {
 			t.Fatalf("Format() returned error: %v", err)
 		}
 		out := buf.String()
@@ -533,13 +559,88 @@ func TestStatFormatter_Format(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		var buf bytes.Buffer
 		f := &StatFormatter{}
-		if err := f.Format([]EnrichedStep{}, "s", false, false, &buf); err != nil {
+		if err := f.Format(style.New(false), []EnrichedStep{}, "s", false, false, &buf); err != nil {
 			t.Fatalf("Format() returned error: %v", err)
 		}
 		// Should still have session header
 		out := buf.String()
 		if !strings.Contains(out, "s") {
 			t.Errorf("output missing session id: %s", out)
+		}
+	})
+}
+
+func TestColorizedOutput(t *testing.T) {
+	ts := time.Date(2026, 5, 2, 14, 30, 21, 0, time.UTC)
+	steps := []EnrichedStep{
+		{
+			StepInfo: index.StepInfo{Hash: "abcdef123456", ToolName: "Write", Timestamp: ts},
+			Files:    []string{"main.go"},
+			FileDiffs: []FileDiff{
+				{Path: "main.go", Status: "modified", Additions: 3, Deletions: 1},
+			},
+		},
+	}
+
+	t.Run("with_color", func(t *testing.T) {
+		var buf bytes.Buffer
+		f := &DefaultFormatter{}
+		if err := f.Format(style.New(false), steps, "sess-1", false, true, &buf); err != nil {
+			t.Fatalf("Format() returned error: %v", err)
+		}
+		out := buf.String()
+
+		// Hash should be bold: \033[1mabcdef12
+		if !strings.Contains(out, "\033[1mabcdef12") {
+			t.Errorf("Expected bold step hash in colored output, got %q", out)
+		}
+
+		// Tool name Write should be green: \033[38;5;42mWrite
+		if !strings.Contains(out, "\033[38;5;42mWrite") {
+			t.Errorf("Expected green tool name Write, got %q", out)
+		}
+
+		// File path should be underlined: \033[4mmain.go
+		if !strings.Contains(out, "\033[4mmain.go") {
+			t.Errorf("Expected underlined file path, got %q", out)
+		}
+
+		// Diff additions should be green (+3): \033[38;5;42m+3
+		if !strings.Contains(out, "\033[38;5;42m+3") {
+			t.Errorf("Expected green additions stat, got %q", out)
+		}
+
+		// Diff deletions should be red (-1): \033[38;5;196m-1
+		if !strings.Contains(out, "\033[38;5;196m-1") {
+			t.Errorf("Expected red deletions stat, got %q", out)
+		}
+	})
+
+	t.Run("no_color", func(t *testing.T) {
+		var buf bytes.Buffer
+		f := &DefaultFormatter{}
+		if err := f.Format(style.New(true), steps, "sess-1", false, true, &buf); err != nil {
+			t.Fatalf("Format() returned error: %v", err)
+		}
+		out := buf.String()
+
+		// Should not contain ANSI escape codes (e.g. \033[)
+		if strings.Contains(out, "\033[") {
+			t.Errorf("Expected no ANSI escape codes in no-color mode, got %q", out)
+		}
+
+		// Plain text should be present
+		if !strings.Contains(out, "abcdef12") {
+			t.Errorf("Expected hash to be present in plain output")
+		}
+		if !strings.Contains(out, "Write") {
+			t.Errorf("Expected tool name to be present in plain output")
+		}
+		if !strings.Contains(out, "main.go") {
+			t.Errorf("Expected file path to be present in plain output")
+		}
+		if !strings.Contains(out, "+3") || !strings.Contains(out, "-1") {
+			t.Errorf("Expected stats to be present in plain output")
 		}
 	})
 }
