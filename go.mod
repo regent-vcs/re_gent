@@ -7,7 +7,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.3
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	github.com/sergi/go-diff v1.3.1
-	github.com/spf13/cobra v1.8.0
+	github.com/spf13/cobra v1.10.2
 	lukechampine.com/blake3 v1.2.1
 	modernc.org/sqlite v1.28.0
 )
@@ -40,7 +40,7 @@ require (
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/mod v0.17.0 // indirect
 	golang.org/x/sync v0.15.0 // indirect
