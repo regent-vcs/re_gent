@@ -374,7 +374,7 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 <div align="center">
   <p>
-    <sub>Built by <a href="https://github.com/regent-vcs/regent/graphs/contributors">contributors</a></sub>
+    <sub>Built by Shay Livni — <a href="https://x.com/ShyLivnii">X</a> · <a href="https://www.linkedin.com/in/shay-livni/">LinkedIn</a></sub>
   </p>
   <p>
     <a href="https://discord.gg/5k2Q8AmqC">Discord</a> •
