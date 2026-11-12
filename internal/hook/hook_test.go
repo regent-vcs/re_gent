@@ -149,6 +149,60 @@ func TestHookCreatesStep(t *testing.T) {
 	}
 }
 
+// TestHookRecordsGitCommitEffect drives the full pipeline: a git-commit Bash payload goes
+// through Run, and the persisted step (read back from the object store via the session ref)
+// must carry a git_commit Effect holding the SHA. This is the join key LLMTrace queries.
+func TestHookRecordsGitCommitEffect(t *testing.T) {
+	workspace := t.TempDir()
+	s, err := store.Init(workspace)
+	if err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	idx, err := index.Open(s)
+	if err != nil {
+		t.Fatalf("Open index failed: %v", err)
+	}
+	defer idx.Close()
+
+	const sessionID = "test-session-gitcommit"
+	payload := Payload{
+		SessionID:    sessionID,
+		ToolUseID:    "tool_commit_1",
+		ToolName:     "Bash",
+		ToolInput:    json.RawMessage(`{"command":"git commit -m \"add feature\""}`),
+		ToolResponse: json.RawMessage(`{"output":"[main c4e2117] add feature\n 1 file changed, 1 insertion(+)"}`),
+		CWD:          workspace,
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(payload); err != nil {
+		t.Fatalf("Encode payload failed: %v", err)
+	}
+	if err := Run(&buf, io.Discard); err != nil {
+		t.Fatalf("Hook failed: %v", err)
+	}
+
+	// Read the persisted step back through the session ref, not the in-memory object.
+	headHash, err := s.ReadRef("sessions/" + sessionID)
+	if err != nil {
+		t.Fatalf("ReadRef failed: %v", err)
+	}
+	step, err := s.ReadStep(headHash)
+	if err != nil {
+		t.Fatalf("ReadStep failed: %v", err)
+	}
+
+	if len(step.Effects) != 1 {
+		t.Fatalf("expected 1 effect, got %d", len(step.Effects))
+	}
+	if step.Effects[0].Kind != "git_commit" {
+		t.Errorf("expected kind git_commit, got %q", step.Effects[0].Kind)
+	}
+	if step.Effects[0].Descriptor != "c4e2117" {
+		t.Errorf("expected SHA c4e2117, got %q", step.Effects[0].Descriptor)
+	}
+}
+
 func TestHookMultipleStepsChain(t *testing.T) {
 	// Test that multiple hook invocations create a proper parent chain
 	workspace := t.TempDir()
@@ -644,5 +698,94 @@ func TestRgtCommandFiltering_Integration(t *testing.T) {
 	}
 	if len(steps3) != 2 {
 		t.Fatalf("Expected 2 steps after grep command, got %d", len(steps3))
+	}
+}
+
+func TestGitCommitEffect(t *testing.T) {
+	sha := "c4e2117"
+	cases := []struct {
+		name     string
+		tool     string
+		input    string
+		response string
+		wantSHA  string
+	}{
+		{
+			name:     "git commit with JSON output",
+			tool:     "Bash",
+			input:    `{"command":"git commit -m \"add feature\""}`,
+			response: `{"output":"[main c4e2117] add feature\n 1 file changed"}`,
+			wantSHA:  sha,
+		},
+		{
+			name:     "git commit with plain text output",
+			tool:     "Bash",
+			input:    `{"command":"git commit -m \"fix bug\""}`,
+			response: `"[main c4e2117] fix bug\n 1 file changed"`,
+			wantSHA:  sha,
+		},
+		{
+			name:     "root commit prints (root-commit) before the SHA",
+			tool:     "Bash",
+			input:    `{"command":"git commit -m \"init\""}`,
+			response: `{"output":"[master (root-commit) c4e2117] init\n 1 file changed"}`,
+			wantSHA:  sha,
+		},
+		{
+			name:     "detached head has a space in the branch field",
+			tool:     "Bash",
+			input:    `{"command":"git commit -m \"wip\""}`,
+			response: `{"output":"[detached HEAD c4e2117] wip\n 1 file changed"}`,
+			wantSHA:  sha,
+		},
+		{
+			name:     "bracketed text in the commit message is not mistaken for the SHA",
+			tool:     "Bash",
+			input:    `{"command":"git commit -m \"fix [edge abc1234] case\""}`,
+			response: `{"output":"[main c4e2117] fix [edge abc1234] case\n 1 file changed"}`,
+			wantSHA:  sha,
+		},
+		{
+			name:     "pre-commit hook output before the commit line is skipped",
+			tool:     "Bash",
+			input:    `{"command":"git commit -m \"add feature\""}`,
+			response: `{"output":"some hook: PASS\n[main c4e2117] add feature\n 1 file changed"}`,
+			wantSHA:  sha,
+		},
+		{
+			name:     "non-commit bash command",
+			tool:     "Bash",
+			input:    `{"command":"git status"}`,
+			response: `{"output":"nothing to commit"}`,
+			wantSHA:  "",
+		},
+		{
+			name:     "non-bash tool",
+			tool:     "Write",
+			input:    `{"file_path":"foo.go","content":"package main"}`,
+			response: `{"success":true}`,
+			wantSHA:  "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			effect := gitCommitEffect(tc.tool, json.RawMessage(tc.input), json.RawMessage(tc.response))
+			if tc.wantSHA == "" {
+				if effect != nil {
+					t.Fatalf("expected nil effect, got %+v", effect)
+				}
+				return
+			}
+			if effect == nil {
+				t.Fatal("expected effect, got nil")
+			}
+			if effect.Kind != "git_commit" {
+				t.Fatalf("expected kind git_commit, got %q", effect.Kind)
+			}
+			if effect.Descriptor != tc.wantSHA {
+				t.Fatalf("expected SHA %q, got %q", tc.wantSHA, effect.Descriptor)
+			}
+		})
 	}
 }
